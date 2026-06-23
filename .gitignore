@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.env
+*.egg-info/
+dist/
+.venv/
+videos/
+*.mp4
+*.avi
+*.mkv
+config.yaml
