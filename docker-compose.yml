@@ -1,13 +1,24 @@
-version: "3"
+version: "3.8"
+
 services:
   btv:
     image: lzylipu/btv:latest
     container_name: btv
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    environment:
+      - TZ=Asia/Shanghai
+      - API_SECRET=your-secret-key-change-me
+      - PORT=8080
     ports:
       - "8080:8080"
     volumes:
       - btv-data:/data
-    restart: unless-stopped
+      - /srv/videos:/videos:ro
 
 volumes:
   btv-data:
