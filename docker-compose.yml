@@ -1,6 +1,6 @@
 version: "3"
 services:
-  pili:
+  btv:
     image: lzylipu/btv:latest
     container_name: btv
     ports:
