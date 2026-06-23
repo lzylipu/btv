@@ -5,241 +5,113 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <meta name="referrer" content="never">
 <link rel="icon" href="/img/favicon.ico">
-<title>BTV - 随机视频播放器</title>
+<title>BTV</title>
 <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
 
 <video id="player" preload autoplay playsinline></video>
 
-<div class="controls" id="controls">
-  <div class="ctrl-progress" id="progressWrap">
-    <div class="progress-bar" id="progressBar"></div>
+<div class="btv-controls" id="controls">
+  <div class="btv-progress" id="progressWrap">
+    <div class="btv-progress-bg">
+      <div class="btv-progress-fill" id="progressFill"></div>
+      <div class="btv-progress-thumb" id="progressThumb"></div>
+    </div>
   </div>
-
-  <div class="ctrl-main">
-    <div class="ctrl-left">
-      <button id="btnPrev" title="上一个">&#x23EE;</button>
-      <button id="btnPlay" title="播放/暂停">&#x23F8;</button>
-      <button id="btnNext" title="随机下一个">&#x23ED;</button>
-      <span class="ctrl-time" id="timeDisplay">00:00 / 00:00</span>
-      <div class="ctrl-mode">
-        <button id="btnMode" class="mode-btn" title="播放模式">&#x1F501; 循环</button>
-        <button id="btnAuto" class="mode-btn" title="自动连播">&#x25B6; 连播</button>
+  <div class="btv-bar">
+    <div class="btv-bar-left">
+      <button class="btv-btn" id="btnRandom">🎲</button>
+      <button class="btv-btn" id="btnSource">📁</button>
+    </div>
+    <div class="btv-bar-right">
+      <span class="btv-time" id="timeDisplay">00:00 / 00:00</span>
+      <button class="btv-btn btv-vol-btn" id="btnVolume">🔊</button>
+      <div class="btv-vol-slider-wrap">
+        <input type="range" id="volSlider" min="0" max="100" value="100" class="btv-vol-slider">
       </div>
+      <button class="btv-btn" id="btnFullscreen">⛶</button>
     </div>
-    <div class="ctrl-right">
-      <button id="btnVolume" title="静音" class="vol-btn">&#x1F50A;</button>
-      <input type="range" id="volSlider" min="0" max="100" value="100" class="vol-slider">
-      <button id="btnSource" title="切换视频源">&#x1F4C1; 换源</button>
-      <button id="btnFullscreen" title="全屏">&#x26F6;</button>
-    </div>
-  </div>
-
-  <div class="ctrl-top-left" id="topLeft">
-    <button id="btnLandscape" title="横屏">&#x2194;</button>
   </div>
 </div>
 
-<div class="loading" id="loading">
-  <div class="spinner"></div>
-</div>
+<button class="btv-landscape" id="btnLandscape">↔</button>
 
-<div class="source-panel" id="sourcePanel">
-  <div class="source-title">切换视频源</div>
+<div class="btv-loading" id="loading"><div class="btv-spinner"></div></div>
+
+<div class="btv-panel" id="sourcePanel">
+  <div class="btv-panel-title">切换视频源</div>
   <div id="sourceList"></div>
 </div>
 
-<div class="toast" id="toast"></div>
+<div class="btv-toast" id="toast"></div>
 
 <script>
 (function(){
-var player = document.getElementById('player');
-var controls = document.getElementById('controls');
-var loading = document.getElementById('loading');
-var toastEl = document.getElementById('toast');
+var V=document.getElementById('player'),C=document.getElementById('controls'),
+L=document.getElementById('loading'),T=document.getElementById('toast'),
+P=document.getElementById('progressFill'),Th=document.getElementById('progressThumb'),
+PW=document.getElementById('progressWrap'),TD=document.getElementById('timeDisplay'),
+VB=document.getElementById('btnVolume'),VS=document.getElementById('volSlider');
+var SL=[],Si=-1,H=[],Hi=-1,vol=1,muted=!1;
+var isMobile=/Android|iPhone|iPod|iPad|Mobile/i.test(navigator.userAgent);
+var hideTimer=null;
 
-var SL = [], Si = -1;
-var isLoop = true, isAuto = true, isMuted = false;
-var H = [], Hi = -1;
-var isMobile = /Android|iPhone|iPod|iPad|Mobile/i.test(navigator.userAgent);
+function toast(m){T.textContent=m;T.classList.add('show');clearTimeout(T._t);T._t=setTimeout(function(){T.classList.remove('show')},2e3)}
+function fmt(s){if(!s||isNaN(s)||s===Infinity)return'00:00';var m=Math.floor(s/60),sec=Math.floor(s%60);return String(m).padStart(2,'0')+':'+String(sec).padStart(2,'0')}
+function setVol(v){vol=Math.max(0,Math.min(1,v));V.volume=vol;V.muted=vol===0;VS.value=Math.round(vol*100);VB.textContent=vol===0?'🔇':vol<0.5?'🔉':'🔊'}
+function showControls(){C.classList.add('show');clearTimeout(hideTimer);hideTimer=setTimeout(function(){C.classList.remove('show')},3e3)}
 
-function toast(msg){
-  toastEl.textContent = msg;
-  toastEl.classList.add('show');
-  clearTimeout(toastEl._t);
-  toastEl._t = setTimeout(function(){ toastEl.classList.remove('show') }, 2000);
-}
+V.addEventListener('timeupdate',function(){if(!V.duration)return;var p=(V.currentTime/V.duration)*100;P.style.width=p+'%';Th.style.left=p+'%';TD.textContent=fmt(V.currentTime)+' / '+fmt(V.duration)});
+V.addEventListener('click',function(){V.paused?V.play().catch(function(){}):V.pause()});
+VS.addEventListener('input',function(){setVol(this.value/100)});
+VB.addEventListener('click',function(){muted=!muted;V.muted=muted;VB.textContent=muted?'🔇':vol===0?'🔇':vol<0.5?'🔉':'🔊'});
 
-function fmt(s){
-  if(!s || isNaN(s)) return '00:00';
-  var m = Math.floor(s / 60);
-  var sec = Math.floor(s % 60);
-  return String(m).padStart(2,'0') + ':' + String(sec).padStart(2,'0');
-}
+async function fetchRandom(){var s=Si>=0?SL[Si]:null;var u=s?'/api/random?source='+encodeURIComponent(s):'/api/random';var r=await fetch(u);if(!r.ok)throw new Error('fetch failed');return r.json()}
+async function playNext(){L.classList.add('show');for(var i=0;i<3;i++){try{var d=await fetchRandom();V.src='/api/play?token='+encodeURIComponent(d.token);try{await V.play()}catch(e){}L.classList.remove('show');if(Hi<H.length-1)H=H.slice(0,Hi+1);H.push({token:d.token,name:d.name||'未知'});if(H.length>50)H.shift();Hi=H.length-1;return}catch(e){}}L.classList.remove('show');toast('加载失败，重试中…');setTimeout(playNext,2e3)}
+function seekDelta(d){if(!V.duration)return;V.currentTime=Math.max(0,Math.min(V.duration,V.currentTime+d))}
+function playPrev(){if(Hi>0){Hi--;var a=H[Hi];V.src='/api/play?token='+encodeURIComponent(a.token);V.play().catch(function(){})}}
+V.addEventListener('ended',playNext);
+V.addEventListener('error',function(){setTimeout(playNext,2e3)});
 
-player.addEventListener('timeupdate', function(){
-  if(player.duration){
-    document.getElementById('progressBar').style.width = (player.currentTime / player.duration * 100) + '%';
-    document.getElementById('timeDisplay').textContent = fmt(player.currentTime) + ' / ' + fmt(player.duration);
-  }
-});
-
-document.getElementById('progressWrap').addEventListener('click', function(e){
-  if(!player.duration) return;
-  var rect = this.getBoundingClientRect();
-  player.currentTime = ((e.clientX - rect.left) / rect.width) * player.duration;
-});
-
-function togglePlay(){
-  player.paused ? player.play().catch(function(){}) : player.pause();
-}
-player.addEventListener('play', function(){ document.getElementById('btnPlay').textContent = '\u23F8'; });
-player.addEventListener('pause', function(){ document.getElementById('btnPlay').textContent = '\u25B6'; });
-
-document.getElementById('volSlider').addEventListener('input', function(){
-  player.volume = this.value / 100;
-  player.muted = this.value == 0;
-  document.getElementById('btnVolume').textContent = this.value == 0 ? '\uD83D\uDD07' : (this.value < 50 ? '\uD83D\uDD09' : '\uD83D\uDD0A');
-});
-
-document.getElementById('btnVolume').addEventListener('click', function(){
-  isMuted = !isMuted;
-  player.muted = isMuted;
-  this.textContent = isMuted ? '\uD83D\uDD07' : '\uD83D\uDD0A';
-});
-
-var hideTimer = null;
-function showControls(){
-  controls.classList.add('show');
-  clearTimeout(hideTimer);
-  hideTimer = setTimeout(function(){ controls.classList.remove('show') }, 3000);
-}
-player.addEventListener('click', function(){
-  controls.classList.contains('show') ? controls.classList.remove('show') : showControls();
-});
-
-document.getElementById('btnFullscreen').addEventListener('click', function(){
-  document.fullscreenElement ? document.exitFullscreen() : document.body.requestFullscreen();
-});
-
-document.getElementById('btnLandscape').addEventListener('click', function(){
-  if(screen.orientation && screen.orientation.lock){
-    screen.orientation.type.includes('landscape') ? screen.orientation.unlock() : screen.orientation.lock('landscape').catch(function(){});
-  }
-});
-
-async function fetchRandom(){
-  var s = Si >= 0 ? SL[Si] : null;
-  var u = s ? '/api/random?source=' + encodeURIComponent(s) : '/api/random';
-  var r = await fetch(u);
-  if(!r.ok) throw new Error();
-  return r.json();
-}
-
-async function playNext(){
-  loading.classList.add('show');
-  for(var retry=0; retry<3; retry++){
-    try{
-      var d = await fetchRandom();
-      player.src = '/api/play?token=' + encodeURIComponent(d.token);
-      try{ await player.play(); }catch(e){}
-      loading.classList.remove('show');
-      if(Hi < H.length-1) H = H.slice(0, Hi+1);
-      H.push({token:d.token, name:d.name||'\u672A\u77E5'});
-      if(H.length > 50) H.shift();
-      Hi = H.length - 1;
-      updateUI();
-      return;
-    }catch(e){}
-  }
-  loading.classList.remove('show');
-  toast('\u52A0\u8F7D\u5931\u8D25');
-}
-
-function playPrev(){
-  if(Hi > 0){
-    Hi--; var a = H[Hi];
-    player.src = '/api/play?token=' + encodeURIComponent(a.token);
-    player.play().catch(function(){});
-    updateUI();
-  } else { toast('\u6CA1\u6709\u4E0A\u4E00\u4E2A'); }
-}
-
-player.addEventListener('ended', function(){
-  isLoop ? (player.currentTime=0, player.play().catch(function(){})) : (isAuto ? playNext() : null);
-});
-player.addEventListener('error', function(){ setTimeout(playNext, 2000); });
-
-function updateUI(){
-  document.getElementById('btnMode').textContent = isLoop ? '\uD83D\uDD01 \u5FAA\u73AF' : '\uD83D\uDD02 \u5355\u66F2';
-  document.getElementById('btnAuto').textContent = isAuto ? '\u25B6 \u8FDE\u64AD' : '\u23F9 \u505C\u64AD';
-}
-
-document.getElementById('btnMode').addEventListener('click', function(){
-  isLoop = !isLoop; updateUI(); toast(isLoop ? '\u5FAA\u73AF\u6A21\u5F0F' : '\u5355\u66F2\u64AD\u653E');
-});
-document.getElementById('btnAuto').addEventListener('click', function(){
-  isAuto = !isAuto; updateUI(); toast(isAuto ? '\u81EA\u52A8\u8FDE\u64AD' : '\u505C\u6B62\u8FDE\u64AD');
-});
-
-async function loadSources(){
-  try{ var r = await fetch('/api/sources'); var d = await r.json(); SL = d.sources || []; } catch(e){}
-  renderSourceList();
-}
-function renderSourceList(){
-  var el = document.getElementById('sourceList');
-  var html = '<div class="source-item' + (Si===-1?' active':'') + '" data-i="-1">\u5168\u90E8\u6E90</div>';
-  SL.forEach(function(name, i){
-    html += '<div class="source-item' + (Si===i?' active':'') + '" data-i="' + i + '">' + name + '</div>';
-  });
-  el.innerHTML = html;
-  el.querySelectorAll('.source-item').forEach(function(item){
-    item.addEventListener('click', function(){
-      Si = parseInt(this.dataset.i);
-      renderSourceList();
-      document.getElementById('sourcePanel').classList.remove('show');
-      toast(Si===-1 ? '\u5168\u90E8\u6E90' : SL[Si]);
-      playNext();
-    });
-  });
-}
-
-document.getElementById('btnSource').addEventListener('click', function(){
-  document.getElementById('sourcePanel').classList.toggle('show');
-});
-document.getElementById('sourcePanel').addEventListener('click', function(e){
-  if(e.target === this) this.classList.remove('show');
-});
+async function loadSources(){try{var r=await fetch('/api/sources');var d=await r.json();SL=d.sources||[]}catch(e){}renderSourceList()}
+function renderSourceList(){var el=document.getElementById('sourceList');var h='<div class="source-item'+(Si===-1?' active':'')+'" data-i="-1">全部源</div>';SL.forEach(function(name,i){h+='<div class="source-item'+(Si===i?' active':'')+'" data-i="'+i+'">'+name+'</div>'});el.innerHTML=h;el.querySelectorAll('.source-item').forEach(function(item){item.addEventListener('click',function(){Si=parseInt(this.dataset.i);renderSourceList();document.getElementById('sourcePanel').classList.remove('show');playNext()})})}
+document.getElementById('btnSource').addEventListener('click',function(){document.getElementById('sourcePanel').classList.toggle('show')});
+document.getElementById('sourcePanel').addEventListener('click',function(e){if(e.target===this)this.classList.remove('show')});
+document.getElementById('btnRandom').addEventListener('click',playNext);
+document.getElementById('btnFullscreen').addEventListener('click',function(){document.fullscreenElement?document.exitFullscreen():document.body.requestFullscreen()});
+document.getElementById('btnLandscape').addEventListener('click',function(){if(screen.orientation&&screen.orientation.lock){screen.orientation.type.includes('landscape')?screen.orientation.unlock():screen.orientation.lock('landscape').catch(function(){})}});
 
 if(!isMobile){
-  document.addEventListener('keydown', function(e){
+  document.addEventListener('keydown',function(e){
     switch(e.key){
-      case ' ': case 'k': togglePlay(); e.preventDefault(); break;
-      case 'n': case 'ArrowRight': playNext(); break;
-      case 'p': case 'ArrowLeft': playPrev(); break;
-      case 'f': document.getElementById('btnFullscreen').click(); break;
-      case 's': document.getElementById('btnSource').click(); break;
-      case 'm': document.getElementById('btnMode').click(); break;
-      case 'v': document.getElementById('btnVolume').click(); break;
-      case 'l': screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape').catch(function(){}); break;
+      case' ':e.preventDefault();V.paused?V.play().catch(function(){}):V.pause();break;
+      case'ArrowLeft':seekDelta(-5);break;
+      case'ArrowRight':seekDelta(5);break;
+      case'ArrowUp':setVol(vol+0.1);break;
+      case'ArrowDown':setVol(vol-0.1);break;
+      case'v':case'V':muted=!muted;V.muted=muted;VB.textContent=muted?'🔇':vol<0.5?'🔉':'🔊';break;
+      case'f':case'F':document.getElementById('btnFullscreen').click();break;
+      case's':case'S':document.getElementById('btnSource').click();break;
+      case'r':case'R':playNext();break;
     }
   });
-  var pcTimer = null;
-  document.addEventListener('mousemove', function(){
-    controls.classList.add('show');
-    clearTimeout(pcTimer);
-    pcTimer = setTimeout(function(){ controls.classList.remove('show') }, 3000);
-  });
-  controls.addEventListener('mouseenter', function(){ clearTimeout(pcTimer); });
-  controls.addEventListener('mouseleave', function(){ pcTimer = setTimeout(function(){ controls.classList.remove('show') }, 2000); });
+  document.addEventListener('wheel',function(e){e.preventDefault();setVol(vol-e.deltaY*0.001)},{passive:!1});
+  document.addEventListener('mousemove',function(){showControls()});
+  C.addEventListener('mouseenter',function(){clearTimeout(hideTimer)});
+  C.addEventListener('mouseleave',function(){hideTimer=setTimeout(function(){C.classList.remove('show')},2e3)});
+  PW.addEventListener('click',function(e){if(!V.duration)return;var r=PW.getBoundingClientRect();V.currentTime=((e.clientX-r.left)/r.width)*V.duration});
 }
 
-document.getElementById('btnPrev').addEventListener('click', playPrev);
-document.getElementById('btnPlay').addEventListener('click', togglePlay);
-document.getElementById('btnNext').addEventListener('click', playNext);
+if(isMobile){
+  var tsX=0,tsY=0,tsVol=0,tActive=!1,halfW=window.innerWidth/2;
+  document.addEventListener('touchstart',function(e){if(e.target.closest('.btv-panel,.btv-btn,.btv-vol-slider-wrap,.btv-progress,#btnLandscape'))return;var t=e.touches[0];tsX=t.clientX;tsY=t.clientY;tsVol=vol;halfW=window.innerWidth/2;tActive=!0},{passive:!1});
+  document.addEventListener('touchmove',function(e){if(!tActive)return;var t=e.touches[0],dx=t.clientX-tsX,dy=t.clientY-tsY;if(tsX>halfW){if(Math.abs(dy)>Math.abs(dx)&&Math.abs(dy)>5){e.preventDefault();setVol(tsVol-dy/300)}}else{if(Math.abs(dx)>Math.abs(dy)&&Math.abs(dx)>10&&V.duration){e.preventDefault();V.currentTime=Math.max(0,Math.min(V.duration,V.currentTime+dx/50));tsX=t.clientX}}},{passive:!1});
+  document.addEventListener('touchend',function(){tActive=!1});
+  V.addEventListener('click',showControls);
+}
 
-(async function(){ await loadSources(); setTimeout(playNext, 300); })();
+(async function(){await loadSources();setTimeout(playNext,300)})();
 })();
 </script>
 </body>
