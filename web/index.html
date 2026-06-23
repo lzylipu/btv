@@ -100,13 +100,13 @@ if(!isMobile){
   document.addEventListener('mousemove',function(){showControls()});
   C.addEventListener('mouseenter',function(){clearTimeout(hideTimer)});
   C.addEventListener('mouseleave',function(){hideTimer=setTimeout(function(){C.classList.remove('show')},2e3)});
-  PW.addEventListener('click',function(e){if(!V.duration)return;var r=PW.getBoundingClientRect();V.currentTime=((e.clientX-r.left)/r.width)*V.duration});
+  PW.addEventListener('click',function(e){if(!V.duration)return;var r=PW.getBoundingClientRect();V.currentTime=((e.clientX-r.left)/r.width)*V.duration});PW.addEventListener('touchstart',function(e){tActive=!0;var t=e.touches[0];tsX=t.clientX},{passive:!1});PW.addEventListener('touchmove',function(e){if(!tActive||!V.duration)return;var t=e.touches[0],dx=t.clientX-tsX;e.preventDefault();V.currentTime=Math.max(0,Math.min(V.duration,V.currentTime+dx/50))},{passive:!1});PW.addEventListener('touchend',function(){tActive=!1});
 }
 
 if(isMobile){
   var tsX=0,tsY=0,tsVol=0,tActive=!1,halfW=window.innerWidth/2;
   document.addEventListener('touchstart',function(e){if(e.target.closest('.btv-panel,.btv-btn,.btv-vol-slider-wrap,.btv-progress,#btnLandscape'))return;var t=e.touches[0];tsX=t.clientX;tsY=t.clientY;tsVol=vol;halfW=window.innerWidth/2;tActive=!0},{passive:!1});
-  document.addEventListener('touchmove',function(e){if(!tActive)return;var t=e.touches[0],dx=t.clientX-tsX,dy=t.clientY-tsY;if(tsX>halfW){if(Math.abs(dy)>Math.abs(dx)&&Math.abs(dy)>5){e.preventDefault();setVol(tsVol-dy/300)}}else{if(Math.abs(dx)>Math.abs(dy)&&Math.abs(dx)>10&&V.duration){e.preventDefault();V.currentTime=Math.max(0,Math.min(V.duration,V.currentTime+dx/50));tsX=t.clientX}}},{passive:!1});
+  document.addEventListener('touchmove',function(e){if(!tActive)return;var t=e.touches[0],dx=t.clientX-tsX,dy=t.clientY-tsY;if(tsX>halfW){if(Math.abs(dy)>Math.abs(dx)&&Math.abs(dy)>5){e.preventDefault();setVol(tsVol-dy/300)}}else{if(Math.abs(dx)>5){e.preventDefault();V.currentTime=Math.max(0,Math.min(V.duration,V.currentTime+dx/50));tsX=t.clientX}}},{passive:!1});
   document.addEventListener('touchend',function(){tActive=!1});
   V.addEventListener('click',showControls);
 }
