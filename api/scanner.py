@@ -1,6 +1,6 @@
 import random
 from pathlib import Path
-from api.config import CFG
+from .config import CFG
 from .auth import register_file
 
 _source_index = {}      # name -> [token, ...]
