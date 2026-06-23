@@ -23,8 +23,8 @@ def _generate_default():
     CFG_PATH.parent.mkdir(parents=True, exist_ok=True)
     with open(CFG_PATH, "w", encoding="utf-8") as f:
         f.write(_DEFAULT_YAML)
-    print(f"[djj] Generated default config: {CFG_PATH}")
-    print(f"[djj] Edit it to add/modify sources, then restart container")
+    print(f"[btv] Generated default config: {CFG_PATH}")
+    print(f"[btv] Edit it to add/modify sources, then restart container")
 
 def _load():
     if not CFG_PATH.exists():
@@ -56,7 +56,7 @@ def _load():
 
     return {
         "port": int(os.getenv("PORT", server.get("port", 8080))),
-        "api_secret": os.getenv(_SKEY, server.get("secret", "djj-default-secret-change-me")),
+        "api_secret": os.getenv(_SKEY, server.get("secret", "btv-default-secret-change-me")),
         "sources": sources,
         "config_file": str(CFG_PATH),
         "data_dir": str(DATA_DIR),
