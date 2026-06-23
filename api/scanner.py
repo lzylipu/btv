@@ -18,7 +18,7 @@ def scan_all():
     _local_sources.clear()
 
     if not sources:
-        print("[djj] WARNING: No sources configured. Edit /data/config.yaml and restart.")
+        print("[btv] WARNING: No sources configured. Edit /data/config.yaml and restart.")
         return
 
     for src in sources:
@@ -30,7 +30,7 @@ def scan_all():
             if url:
                 _remote_sources[name] = {"url": url}
                 _source_index[name] = []  # remote源的token列表为空，server层动态fetch
-                print(f"[djj] REMOTE {name}: {url}")
+                print(f"[btv] REMOTE {name}: {url}")
             continue
 
         # type=local
@@ -38,7 +38,7 @@ def scan_all():
         p = Path(path)
         _local_sources[name] = path
         if not p.exists():
-            print(f"[djj] WARNING: {path} not found ({name})")
+            print(f"[btv] WARNING: {path} not found ({name})")
             _source_index[name] = []
             continue
         tokens = []
@@ -48,7 +48,7 @@ def scan_all():
                 tokens.append(token)
                 _name_index[token] = f.stem
         _source_index[name] = tokens
-        print(f"[djj] LOCAL {name}: {len(tokens)} videos from {path}")
+        print(f"[btv] LOCAL {name}: {len(tokens)} videos from {path}")
 
 
 def is_remote_source(name):
