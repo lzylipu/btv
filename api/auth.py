@@ -1,5 +1,5 @@
 import hashlib, hmac, time, uuid
-from api.config import CFG
+from .config import CFG
 
 _token_map = {}      # token -> file_path or remote_url
 _path_map = {}       # file_path -> token
