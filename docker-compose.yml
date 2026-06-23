@@ -1,0 +1,13 @@
+version: "3"
+services:
+  pili:
+    image: lzylipu/btv:latest
+    container_name: btv
+    ports:
+      - "8080:8080"
+    volumes:
+      - btv-data:/data
+    restart: unless-stopped
+
+volumes:
+  btv-data:

@@ -1,0 +1,13 @@
+server:
+  port: 8080
+  secret: change-me-to-random-string
+
+# \u89C6\u9891\u6E90: \u6E90\u540D: URL
+# / \u5F00\u5934 = \u672C\u5730\u76EE\u5F55
+# http \u5F00\u5934 = \u8FDC\u7A0BAPI
+sources:
+  # \u672C\u5730: \u6302\u8F7D\u5230 /videos/xxx
+  默认: /videos
+  # \u8FDC\u7A0B: \u652F\u6301JSON/302\u8DF3\u8F6C/mp4\u6D41/HTML
+  # 小姐姐: https://tmini.net/api/meinv?mp4=json&r=
+  # 随便看: https://api.yujn.cn/api/zzxjj.php

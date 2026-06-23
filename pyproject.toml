@@ -1,0 +1,15 @@
+[project]
+name = "btv"
+version = "1.0.0"
+description = "\u9694\u58C1\u8FC7\u5C4F\u5F0F\u968F\u673A\u89C6\u9891\u64AD\u653E\u5668 - \u4EFFB\u7AD9\u98CE\u683C"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "httpx>=0.27",
+    "pyyaml>=6.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

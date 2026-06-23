@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="referrer" content="never">
+<link rel="icon" href="/img/favicon.ico">
+<title>BTV - 随机视频播放器</title>
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<video id="player" preload autoplay playsinline></video>
+
+<div class="controls" id="controls">
+  <div class="ctrl-progress" id="progressWrap">
+    <div class="progress-bar" id="progressBar"></div>
+  </div>
+
+  <div class="ctrl-main">
+    <div class="ctrl-left">
+      <button id="btnPrev" title="上一个">&#x23EE;</button>
+      <button id="btnPlay" title="播放/暂停">&#x23F8;</button>
+      <button id="btnNext" title="随机下一个">&#x23ED;</button>
+      <span class="ctrl-time" id="timeDisplay">00:00 / 00:00</span>
+      <div class="ctrl-mode">
+        <button id="btnMode" class="mode-btn" title="播放模式">&#x1F501; 循环</button>
+        <button id="btnAuto" class="mode-btn" title="自动连播">&#x25B6; 连播</button>
+      </div>
+    </div>
+    <div class="ctrl-right">
+      <button id="btnVolume" title="静音" class="vol-btn">&#x1F50A;</button>
+      <input type="range" id="volSlider" min="0" max="100" value="100" class="vol-slider">
+      <button id="btnSource" title="切换视频源">&#x1F4C1; 换源</button>
+      <button id="btnFullscreen" title="全屏">&#x26F6;</button>
+    </div>
+  </div>
+
+  <div class="ctrl-top-left" id="topLeft">
+    <button id="btnLandscape" title="横屏">&#x2194;</button>
+  </div>
+</div>
+
+<div class="loading" id="loading">
+  <div class="spinner"></div>
+</div>
+
+<div class="source-panel" id="sourcePanel">
+  <div class="source-title">切换视频源</div>
+  <div id="sourceList"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+var player = document.getElementById('player');
+var controls = document.getElementById('controls');
+var loading = document.getElementById('loading');
+var toastEl = document.getElementById('toast');
+
+var SL = [], Si = -1;
+var isLoop = true, isAuto = true, isMuted = false;
+var H = [], Hi = -1;
+var isMobile = /Android|iPhone|iPod|iPad|Mobile/i.test(navigator.userAgent);
+
+function toast(msg){
+  toastEl.textContent = msg;
+  toastEl.classList.add('show');
+  clearTimeout(toastEl._t);
+  toastEl._t = setTimeout(function(){ toastEl.classList.remove('show') }, 2000);
+}
+
+function fmt(s){
+  if(!s || isNaN(s)) return '00:00';
+  var m = Math.floor(s / 60);
+  var sec = Math.floor(s % 60);
+  return String(m).padStart(2,'0') + ':' + String(sec).padStart(2,'0');
+}
+
+player.addEventListener('timeupdate', function(){
+  if(player.duration){
+    document.getElementById('progressBar').style.width = (player.currentTime / player.duration * 100) + '%';
+    document.getElementById('timeDisplay').textContent = fmt(player.currentTime) + ' / ' + fmt(player.duration);
+  }
+});
+
+document.getElementById('progressWrap').addEventListener('click', function(e){
+  if(!player.duration) return;
+  var rect = this.getBoundingClientRect();
+  player.currentTime = ((e.clientX - rect.left) / rect.width) * player.duration;
+});
+
+function togglePlay(){
+  player.paused ? player.play().catch(function(){}) : player.pause();
+}
+player.addEventListener('play', function(){ document.getElementById('btnPlay').textContent = '\u23F8'; });
+player.addEventListener('pause', function(){ document.getElementById('btnPlay').textContent = '\u25B6'; });
+
+document.getElementById('volSlider').addEventListener('input', function(){
+  player.volume = this.value / 100;
+  player.muted = this.value == 0;
+  document.getElementById('btnVolume').textContent = this.value == 0 ? '\uD83D\uDD07' : (this.value < 50 ? '\uD83D\uDD09' : '\uD83D\uDD0A');
+});
+
+document.getElementById('btnVolume').addEventListener('click', function(){
+  isMuted = !isMuted;
+  player.muted = isMuted;
+  this.textContent = isMuted ? '\uD83D\uDD07' : '\uD83D\uDD0A';
+});
+
+var hideTimer = null;
+function showControls(){
+  controls.classList.add('show');
+  clearTimeout(hideTimer);
+  hideTimer = setTimeout(function(){ controls.classList.remove('show') }, 3000);
+}
+player.addEventListener('click', function(){
+  controls.classList.contains('show') ? controls.classList.remove('show') : showControls();
+});
+
+document.getElementById('btnFullscreen').addEventListener('click', function(){
+  document.fullscreenElement ? document.exitFullscreen() : document.body.requestFullscreen();
+});
+
+document.getElementById('btnLandscape').addEventListener('click', function(){
+  if(screen.orientation && screen.orientation.lock){
+    screen.orientation.type.includes('landscape') ? screen.orientation.unlock() : screen.orientation.lock('landscape').catch(function(){});
+  }
+});
+
+async function fetchRandom(){
+  var s = Si >= 0 ? SL[Si] : null;
+  var u = s ? '/api/random?source=' + encodeURIComponent(s) : '/api/random';
+  var r = await fetch(u);
+  if(!r.ok) throw new Error();
+  return r.json();
+}
+
+async function playNext(){
+  loading.classList.add('show');
+  for(var retry=0; retry<3; retry++){
+    try{
+      var d = await fetchRandom();
+      player.src = '/api/play?token=' + encodeURIComponent(d.token);
+      try{ await player.play(); }catch(e){}
+      loading.classList.remove('show');
+      if(Hi < H.length-1) H = H.slice(0, Hi+1);
+      H.push({token:d.token, name:d.name||'\u672A\u77E5'});
+      if(H.length > 50) H.shift();
+      Hi = H.length - 1;
+      updateUI();
+      return;
+    }catch(e){}
+  }
+  loading.classList.remove('show');
+  toast('\u52A0\u8F7D\u5931\u8D25');
+}
+
+function playPrev(){
+  if(Hi > 0){
+    Hi--; var a = H[Hi];
+    player.src = '/api/play?token=' + encodeURIComponent(a.token);
+    player.play().catch(function(){});
+    updateUI();
+  } else { toast('\u6CA1\u6709\u4E0A\u4E00\u4E2A'); }
+}
+
+player.addEventListener('ended', function(){
+  isLoop ? (player.currentTime=0, player.play().catch(function(){})) : (isAuto ? playNext() : null);
+});
+player.addEventListener('error', function(){ setTimeout(playNext, 2000); });
+
+function updateUI(){
+  document.getElementById('btnMode').textContent = isLoop ? '\uD83D\uDD01 \u5FAA\u73AF' : '\uD83D\uDD02 \u5355\u66F2';
+  document.getElementById('btnAuto').textContent = isAuto ? '\u25B6 \u8FDE\u64AD' : '\u23F9 \u505C\u64AD';
+}
+
+document.getElementById('btnMode').addEventListener('click', function(){
+  isLoop = !isLoop; updateUI(); toast(isLoop ? '\u5FAA\u73AF\u6A21\u5F0F' : '\u5355\u66F2\u64AD\u653E');
+});
+document.getElementById('btnAuto').addEventListener('click', function(){
+  isAuto = !isAuto; updateUI(); toast(isAuto ? '\u81EA\u52A8\u8FDE\u64AD' : '\u505C\u6B62\u8FDE\u64AD');
+});
+
+async function loadSources(){
+  try{ var r = await fetch('/api/sources'); var d = await r.json(); SL = d.sources || []; } catch(e){}
+  renderSourceList();
+}
+function renderSourceList(){
+  var el = document.getElementById('sourceList');
+  var html = '<div class="source-item' + (Si===-1?' active':'') + '" data-i="-1">\u5168\u90E8\u6E90</div>';
+  SL.forEach(function(name, i){
+    html += '<div class="source-item' + (Si===i?' active':'') + '" data-i="' + i + '">' + name + '</div>';
+  });
+  el.innerHTML = html;
+  el.querySelectorAll('.source-item').forEach(function(item){
+    item.addEventListener('click', function(){
+      Si = parseInt(this.dataset.i);
+      renderSourceList();
+      document.getElementById('sourcePanel').classList.remove('show');
+      toast(Si===-1 ? '\u5168\u90E8\u6E90' : SL[Si]);
+      playNext();
+    });
+  });
+}
+
+document.getElementById('btnSource').addEventListener('click', function(){
+  document.getElementById('sourcePanel').classList.toggle('show');
+});
+document.getElementById('sourcePanel').addEventListener('click', function(e){
+  if(e.target === this) this.classList.remove('show');
+});
+
+if(!isMobile){
+  document.addEventListener('keydown', function(e){
+    switch(e.key){
+      case ' ': case 'k': togglePlay(); e.preventDefault(); break;
+      case 'n': case 'ArrowRight': playNext(); break;
+      case 'p': case 'ArrowLeft': playPrev(); break;
+      case 'f': document.getElementById('btnFullscreen').click(); break;
+      case 's': document.getElementById('btnSource').click(); break;
+      case 'm': document.getElementById('btnMode').click(); break;
+      case 'v': document.getElementById('btnVolume').click(); break;
+      case 'l': screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape').catch(function(){}); break;
+    }
+  });
+  var pcTimer = null;
+  document.addEventListener('mousemove', function(){
+    controls.classList.add('show');
+    clearTimeout(pcTimer);
+    pcTimer = setTimeout(function(){ controls.classList.remove('show') }, 3000);
+  });
+  controls.addEventListener('mouseenter', function(){ clearTimeout(pcTimer); });
+  controls.addEventListener('mouseleave', function(){ pcTimer = setTimeout(function(){ controls.classList.remove('show') }, 2000); });
+}
+
+document.getElementById('btnPrev').addEventListener('click', playPrev);
+document.getElementById('btnPlay').addEventListener('click', togglePlay);
+document.getElementById('btnNext').addEventListener('click', playNext);
+
+(async function(){ await loadSources(); setTimeout(playNext, 300); })();
+})();
+</script>
+</body>
+</html>
