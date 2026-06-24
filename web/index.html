@@ -104,14 +104,19 @@ function hideControlsNow(){
   clearTimeout(hideTimer);
 }
 
-/* 全屏管理 — 全屏wrap而非body，换视频src不影响全屏 */
-var wantFS=!1;
+/* 全屏管理 — 全屏wrap，换视频src时防退出 */
+var wantFS=!1,switchingSrc=!1;
 
 document.addEventListener('fullscreenchange',onFSChange);
 document.addEventListener('webkitfullscreenchange',onFSChange);
 
 function onFSChange(){
   if(!isFullscreen()){
+    /* 非预期退出（src切换导致）→ 立即重新进入 */
+    if(wantFS && switchingSrc){
+      reRequestFS();
+      return;
+    }
     wantFS=!1;
     W.classList.remove('fs');
   }else{
@@ -133,11 +138,36 @@ function exitFS(){
   (document.exitFullscreen||document.webkitExitFullscreen||function(){}).call(document);
 }
 
+/* 重新请求全屏，带多次重试 */
+function reRequestFS(){
+  var tries=0;
+  function tryFS(){
+    if(isFullscreen()){W.classList.add('fs');return}
+    if(tries>=3)return;
+    tries++;
+    var fn=W.requestFullscreen||W.webkitRequestFullscreen;
+    if(fn)fn.call(W).then(function(){W.classList.add('fs')}).catch(function(){setTimeout(tryFS,200)});
+  }
+  setTimeout(tryFS,100);
+}
+
+function changeVideoSrc(newSrc){
+  switchingSrc=!0;
+  V.src=newSrc;
+  V.load();
+  /* 安全网：2秒后无论结果都解除标记 */
+  setTimeout(function(){switchingSrc=!1},2e3);
+}
+
 function reloadCurrent(){
   if(!V.src)return;
   var savedSrc=V.src,savedTime=V.currentTime;
+  switchingSrc=!0;
   V.src='';V.load();
-  setTimeout(function(){V.src=savedSrc;V.load();V.currentTime=savedTime;V.play().catch(function(){})},100);
+  setTimeout(function(){
+    V.src=savedSrc;V.load();V.currentTime=savedTime;V.play().catch(function(){});
+    setTimeout(function(){switchingSrc=!1},1e3);
+  },100);
 }
 
 V.addEventListener('timeupdate',function(){
@@ -179,7 +209,6 @@ function handleVideoTap(e){
 
 function handleLongPressStart(e){
   if(e)e.preventDefault();
-  /* 开始长按：记录当前速度，切到2倍速 */
   if(isLongPress)return;
   preLongSpeed=curSpeed;
   longPressTimer=setTimeout(function(){
@@ -191,7 +220,6 @@ function handleLongPressStart(e){
 function handleLongPressEnd(e){
   clearTimeout(longPressTimer);
   if(isLongPress){
-    /* 松手恢复原速 */
     isLongPress=!1;
     setSpeed(preLongSpeed);
     if(e)e.preventDefault();
@@ -264,13 +292,15 @@ async function playNext(){
   for(var i=0;i<5;i++){
     try{
       var d=await fetchRandom();
-      V.src='/api/play?token='+encodeURIComponent(d.token);
+      changeVideoSrc('/api/play?token='+encodeURIComponent(d.token));
       V.muted=muted;V.volume=vol;
       V.setAttribute('playsinline','');
       try{await V.play()}catch(e){V.muted=!0;try{await V.play()}catch(e2){}}
       V.addEventListener('playing',function unmute(){
         V.muted=muted;V.volume=vol;V.removeEventListener('playing',unmute);
       },{once:!0});
+      /* src加载成功后解除switchingSrc标记 */
+      switchingSrc=!1;
       L.classList.remove('show');
       if(Hi<H.length-1)H=H.slice(0,Hi+1);
       H.push({token:d.token,name:d.name||'未知'});
@@ -290,7 +320,7 @@ async function playNext(){
 }
 
 function seekDelta(d){if(!V.duration)return;V.currentTime=Math.max(0,Math.min(V.duration,V.currentTime+d));toast((d>0?'+':'')+d+'s')}
-function playPrev(){if(Hi>0){Hi--;var a=H[Hi];V.src='/api/play?token='+encodeURIComponent(a.token);V.play().catch(function(){});VN.textContent=a.name||'未知';updateSourceName()}}
+function playPrev(){if(Hi>0){Hi--;var a=H[Hi];changeVideoSrc('/api/play?token='+encodeURIComponent(a.token));V.play().catch(function(){});VN.textContent=a.name||'未知';updateSourceName()}}
 
 V.addEventListener('ended',playNext);
 
@@ -312,7 +342,7 @@ V.addEventListener('timeupdate',function(){if(stallTimer&&V.readyState>=2)clearS
 V.addEventListener('error',function(){L.classList.remove('show');toast('视频加载失败，换下一个…');setTimeout(playNext,1500)});
 V.addEventListener('loadeddata',function(){L.classList.remove('show')});
 
-/* 黑屏检测：有声音无画面时，先尝试带转码参数重试，仍失败则跳过 */
+/* 黑屏检测 */
 var blackCheckTimer=null,blackRetryAttempted=!1;
 function startBlackCheck(){clearTimeout(blackCheckTimer);blackCheckTimer=setTimeout(function(){
   if(V.readyState>=2 && V.videoWidth===0 && !V.paused){
@@ -322,7 +352,7 @@ function startBlackCheck(){clearTimeout(blackCheckTimer);blackCheckTimer=setTime
       V.pause();
       var curSrc=V.src,curTime=V.currentTime;
       var sep=curSrc.indexOf("?")>=0?"&":"?";
-      V.src=curSrc+sep+"transcode=1";
+      changeVideoSrc(curSrc+sep+"transcode=1");
       V.currentTime=curTime;
       V.play().catch(function(){});
       V.addEventListener("playing",function onPlay(){
@@ -344,7 +374,6 @@ V.addEventListener("loadstart",function(){blackRetryAttempted=!1});
 
 async function loadSources(){try{var r=await fetch('/api/sources');var d=await r.json();SL=d.sources||[]}catch(e){console.log('Load sources error:',e)}updateSourceName()}
 
-/* 点击源名：只切换源，不暂停、不随机、不同步 */
 function cycleSource(){
   if(!SL.length){toast('无可用源');return}
   var total=SL.length+1;
@@ -353,7 +382,6 @@ function cycleSource(){
   toast(SN.textContent);
 }
 
-/* 骰子按钮：唯一触发下一个视频的方式 */
 document.getElementById('btnRandom').addEventListener('click',function(e){
   e.stopPropagation();
   playNext();
