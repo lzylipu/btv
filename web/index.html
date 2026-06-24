@@ -245,14 +245,38 @@ V.addEventListener('timeupdate',function(){if(stallTimer&&V.readyState>=2)clearS
 V.addEventListener('error',function(){L.classList.remove('show');toast('视频加载失败，换下一个…');setTimeout(playNext,1500)});
 V.addEventListener('loadeddata',function(){L.classList.remove('show')});
 
-/* 黑屏检测：有声音无画面时自动跳过 */
-var blackCheckTimer=null;
+/* 黑屏检测：有声音无画面时，先尝试带转码参数重试，仍失败则跳过 */
+var blackCheckTimer=null,blackRetryAttempted=!1;
 function startBlackCheck(){clearTimeout(blackCheckTimer);blackCheckTimer=setTimeout(function(){
   if(V.readyState>=2 && V.videoWidth===0 && !V.paused){
-    toast("视频解码失败(黑屏)，自动跳过…");V.pause();setTimeout(playNext,500);
+    if(!blackRetryAttempted){
+      blackRetryAttempted=!0;
+      toast("检测到黑屏，尝试转码重播…");
+      V.pause();
+      var curSrc=V.src,curTime=V.currentTime;
+      /* 在URL后加 transcode=1 请求ffmpeg转码 */
+      var sep=curSrc.indexOf("?")>=0?"&":"?";
+      V.src=curSrc+sep+"transcode=1";
+      V.currentTime=curTime;
+      V.play().catch(function(){});
+      V.addEventListener("playing",function onPlay(){
+        V.removeEventListener("playing",onPlay);
+        if(V.videoWidth>0){
+          toast("转码播放成功 ✅");
+        }else{
+          /* 转码后仍黑屏，放弃 */
+          toast("转码仍失败，换下一个…");
+          setTimeout(playNext,500);
+        }
+      },{once:!0});
+    }else{
+      toast("视频无法解码，自动跳过…");V.pause();setTimeout(playNext,500);
+    }
   }
 },3e3);}
 V.addEventListener("playing",startBlackCheck);
+/* 每次换视频重置黑屏重试标记 */
+V.addEventListener("loadstart",function(){blackRetryAttempted=!1});
 
 async function loadSources(){try{var r=await fetch('/api/sources');var d=await r.json();SL=d.sources||[]}catch(e){console.log('Load sources error:',e)}updateSourceName()}
 
