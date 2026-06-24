@@ -119,13 +119,22 @@ function onFSChange(){
          → 用CSS fallback模拟全屏 + 保持横屏方向 */
       W.classList.add('fs');
       lockOrientation();
-      /* 延迟尝试重入Fullscreen API（可能因缺少user activation失败，没关系） */
+      /* Firefox Android: 尝试立即重入Fullscreen API
+         有时在事件链内有transient activation可以成功 */
+      try{
+        var fn=W.requestFullscreen||W.webkitRequestFullscreen;
+        if(fn)fn.call(W).then(function(){fsActive=!0}).catch(function(){});
+      }catch(e){}
+      /* 如果立即重入失败，延迟再试一次 */
       setTimeout(function(){
         if(wantFS&&!isFullscreen()){
-          var fn=W.requestFullscreen||W.webkitRequestFullscreen;
-          if(fn)fn.call(W).then(function(){fsActive=!0}).catch(function(){});
+          W.classList.add('fs');/* 确保CSS fallback生效 */
+          try{
+            var fn2=W.requestFullscreen||W.webkitRequestFullscreen;
+            if(fn2)fn2.call(W).then(function(){fsActive=!0}).catch(function(){});
+          }catch(e){}
         }
-      },100);
+      },50);
     }else{
       W.classList.remove('fs');
       unlockOrientation();
@@ -324,6 +333,7 @@ async function fetchRandom(){
 }
 
 async function playNext(){
+  if(isFullscreen())wantFS=!0;
   L.classList.add('show');
   for(var i=0;i<5;i++){
     try{
@@ -348,8 +358,12 @@ async function playNext(){
   setTimeout(playNext,2e3);
 }
 
-/* 同步设src+play */
+/* 同步设src+play，Firefox Android兼容 */
 function setVideoAndPlay(src){
+  if(isFullscreen())wantFS=!0;
+  switchingSrc=!0;
+  /* Firefox Android: V.src赋值会触发pause→可能退出全屏
+     用CSS fallback（.fs类）确保视觉上保持全屏 */
   V.src=src;
   V.muted=muted;V.volume=vol;
   V.setAttribute('playsinline','');
@@ -359,6 +373,7 @@ function setVideoAndPlay(src){
   });
   V.addEventListener('playing',function unmute(){
     V.muted=muted;V.volume=vol;V.removeEventListener('playing',unmute);
+    switchingSrc=!1;
   },{once:!0});
 }
 
@@ -452,6 +467,8 @@ function cycleSource(){
 
 document.getElementById('btnRandom').addEventListener('click',function(e){
   e.stopPropagation();
+  /* 用户在全屏状态下点换视频，一定要保持全屏 */
+  if(isFullscreen())wantFS=!0;
   playNext();
 });
 
