@@ -1,5 +1,7 @@
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;-webkit-tap-highlight-color:transparent}
+#wrap{position:fixed;top:0;left:0;width:100%;height:100%;background:#000}
+#wrap.fs{width:100%;height:100%}
 video{position:fixed;top:0;left:0;width:100%;height:100%;object-fit:contain;cursor:pointer}
 
 .btv-controls{position:fixed;bottom:0;left:0;right:0;z-index:10;background:linear-gradient(transparent,rgba(0,0,0,.85));padding:30px 16px 16px;opacity:0;transition:opacity .4s;pointer-events:none}
@@ -47,6 +49,9 @@ video{position:fixed;top:0;left:0;width:100%;height:100%;object-fit:contain;curs
 .btv-vol-slider{-webkit-appearance:none;appearance:none;width:60px;height:4px;background:rgba(255,255,255,.25);border-radius:2px;outline:none}
 .btv-vol-slider::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:12px;background:#fff;border-radius:50%;cursor:pointer}
 .btv-vol-slider::-moz-range-thumb{width:12px;height:12px;background:#fff;border-radius:50%;border:none;cursor:pointer}
+
+/* 倍速按钮样式 */
+.btv-btn.active{background:rgba(0,179,255,.3);color:#00b3ff}
 
 .btv-loading{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:30;display:none}
 .btv-loading.show{display:block}
