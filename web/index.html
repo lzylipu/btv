@@ -245,6 +245,15 @@ V.addEventListener('timeupdate',function(){if(stallTimer&&V.readyState>=2)clearS
 V.addEventListener('error',function(){L.classList.remove('show');toast('视频加载失败，换下一个…');setTimeout(playNext,1500)});
 V.addEventListener('loadeddata',function(){L.classList.remove('show')});
 
+/* 黑屏检测：有声音无画面时自动跳过 */
+var blackCheckTimer=null;
+function startBlackCheck(){clearTimeout(blackCheckTimer);blackCheckTimer=setTimeout(function(){
+  if(V.readyState>=2 && V.videoWidth===0 && !V.paused){
+    toast("视频解码失败(黑屏)，自动跳过…");V.pause();setTimeout(playNext,500);
+  }
+},3e3);}
+V.addEventListener("playing",startBlackCheck);
+
 async function loadSources(){try{var r=await fetch('/api/sources');var d=await r.json();SL=d.sources||[]}catch(e){console.log('Load sources error:',e)}updateSourceName()}
 
 /* 点击源名：只切换源，不暂停、不随机、不同步 */
