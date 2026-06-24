@@ -15,6 +15,7 @@ Self-hosted, zero-config, Bilibili-inspired dark-theme short video player. Local
 - 📱 **Mobile Gestures** — Left swipe to seek, right swipe for volume, draggable progress bar (portrait + fullscreen)
 - ⌨️ **PC Keyboard** — Space/F/V/arrow keys, scroll wheel for volume
 - 🔀 **Multi-Source** — Local directory mounts + remote APIs (302/JSON/MP4/HTML auto-detected)
+- 🔄 **Smart Transcoding** — Non-H.264 videos auto-transcoded via ffmpeg; black-screen auto-retry with transcoding
 - 🔒 **Secure Playback** — HMAC-signed tokens, real file paths never exposed
 - 🎯 **One-Click Deploy** — Docker image `lzylipu/btv:latest`, up in 30 seconds
 - 🐙 **Multi-Arch** — Supports `linux/amd64` + `linux/arm64`
