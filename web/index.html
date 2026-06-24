@@ -36,6 +36,7 @@
       <div class="btv-vol-slider-wrap">
         <input type="range" id="volSlider" min="0" max="100" value="100" class="btv-vol-slider">
       </div>
+      <button class="btv-btn" id="btnFullscreen">⛶</button>
     </div>
   </div>
 </div>
@@ -319,6 +320,15 @@ document.getElementById('btnRandom').addEventListener('click',function(e){
 });
 
 SN.addEventListener('click',function(e){e.stopPropagation();cycleSource()});
+
+document.getElementById('btnFullscreen').addEventListener('click',function(e){
+  e.stopPropagation();
+  if(isFullscreen()){
+    exitFS();
+  }else{
+    requestFS();
+  }
+});
 
 /* 桌面端 */
 if(!isMobile){
