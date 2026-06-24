@@ -143,12 +143,12 @@ function reRequestFS(){
   var tries=0;
   function tryFS(){
     if(isFullscreen()){W.classList.add('fs');return}
-    if(tries>=3)return;
+    if(tries>=5)return;
     tries++;
     var fn=W.requestFullscreen||W.webkitRequestFullscreen;
-    if(fn)fn.call(W).then(function(){W.classList.add('fs')}).catch(function(){setTimeout(tryFS,200)});
+    if(fn)fn.call(W).then(function(){W.classList.add('fs')}).catch(function(){setTimeout(tryFS,300)});
   }
-  setTimeout(tryFS,100);
+  setTimeout(tryFS,150);
 }
 
 function changeVideoSrc(newSrc){
@@ -277,6 +277,7 @@ V.addEventListener('pause',function(){
 
 /* 换视频时保持当前倍速 */
 V.addEventListener('loadstart',function(){V.playbackRate=curSpeed});
+V.addEventListener('canplay',function(){switchingSrc=!1});
 
 /* 随机视频 */
 async function fetchRandom(){
@@ -299,8 +300,7 @@ async function playNext(){
       V.addEventListener('playing',function unmute(){
         V.muted=muted;V.volume=vol;V.removeEventListener('playing',unmute);
       },{once:!0});
-      /* src加载成功后解除switchingSrc标记 */
-      switchingSrc=!1;
+      /* switchingSrc由loadeddata/canplay事件清除 */
       L.classList.remove('show');
       if(Hi<H.length-1)H=H.slice(0,Hi+1);
       H.push({token:d.token,name:d.name||'未知'});
@@ -340,7 +340,7 @@ V.addEventListener('canplay',clearStallTimer);
 V.addEventListener('timeupdate',function(){if(stallTimer&&V.readyState>=2)clearStallTimer()});
 
 V.addEventListener('error',function(){L.classList.remove('show');toast('视频加载失败，换下一个…');setTimeout(playNext,1500)});
-V.addEventListener('loadeddata',function(){L.classList.remove('show')});
+V.addEventListener('loadeddata',function(){switchingSrc=!1;L.classList.remove('show')});
 
 /* 黑屏检测 */
 var blackCheckTimer=null,blackRetryAttempted=!1;
