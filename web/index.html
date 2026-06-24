@@ -10,6 +10,7 @@
 </head>
 <body>
 
+<div id="wrap">
 <video id="player" preload autoplay playsinline></video>
 
 <!-- 常驻顶部信息栏 -->
@@ -31,6 +32,7 @@
       <div class="btv-source-name" id="sourceName">全部源</div>
     </div>
     <div class="btv-bar-right">
+      <button class="btv-btn" id="btnSpeed">1x</button>
       <span class="btv-time" id="timeDisplay">00:00 / 00:00</span>
       <button class="btv-btn btv-vol-btn" id="btnVolume">🔊</button>
       <div class="btv-vol-slider-wrap">
@@ -42,17 +44,19 @@
 </div>
 
 <div class="btv-loading" id="loading"><div class="btv-spinner"></div></div>
+</div>
 
 <div class="btv-toast" id="toast"></div>
 
 <script>
 (function(){
-var V=document.getElementById('player'),C=document.getElementById('controls'),
+var W=document.getElementById('wrap'),
+V=document.getElementById('player'),C=document.getElementById('controls'),
 L=document.getElementById('loading'),T=document.getElementById('toast'),
 P=document.getElementById('progressFill'),Th=document.getElementById('progressThumb'),
 PW=document.getElementById('progressWrap'),TD=document.getElementById('timeDisplay'),
 VB=document.getElementById('btnVolume'),VS=document.getElementById('volSlider'),
-SN=document.getElementById('sourceName'),
+SN=document.getElementById('sourceName'),SB=document.getElementById('btnSpeed'),
 VN=document.getElementById('videoName'),CLK=document.getElementById('clockDisplay'),
 TB=document.getElementById('topbar');
 
@@ -60,9 +64,16 @@ var SL=[],Si=-1,H=[],Hi=-1,vol=1,muted=!1;
 var isMobile=/Android|iPhone|iPod|iPad|Mobile/i.test(navigator.userAgent);
 var controlsVisible=!1,hideTimer=null;
 var seekStep=20;
+/* 倍速 */
+var speeds=[0.5,1,1.5,2,3],speedIdx=1,curSpeed=1;
+/* 长按2倍速 */
+var longPressTimer=null,longPressSpeed=2,isLongPress=!1,preLongSpeed=1;
 
 function toast(m){T.textContent=m;T.classList.add('show');clearTimeout(T._t);T._t=setTimeout(function(){T.classList.remove('show')},2e3)}
 function fmt(s){if(!s||isNaN(s)||s===Infinity)return'00:00';var m=Math.floor(s/60),sec=Math.floor(s%60);return String(m).padStart(2,'0')+':'+String(sec).padStart(2,'0')}
+function fmtSpeed(r){return r>=1?r+'x':r+'x'}
+function setSpeed(r){curSpeed=Math.max(0.25,Math.min(5,r));V.playbackRate=curSpeed;SB.textContent=fmtSpeed(curSpeed);toast('倍速 '+fmtSpeed(curSpeed))}
+function cycleSpeed(){speedIdx=(speedIdx+1)%speeds.length;curSpeed=speeds[speedIdx];V.playbackRate=curSpeed;SB.textContent=fmtSpeed(curSpeed);toast('倍速 '+fmtSpeed(curSpeed))}
 function setVol(v){vol=Math.max(0,Math.min(1,v));V.volume=vol;V.muted=vol===0;VS.value=Math.round(vol*100);VB.textContent=vol===0?'🔇':vol<0.5?'🔉':'🔊';toast('音量 '+Math.round(vol*100)+'%')}
 function updateSourceName(){if(!SN)return;SN.textContent=Si===0?'全部源':SL[Si-1]||'全部源'}
 
@@ -93,21 +104,18 @@ function hideControlsNow(){
   clearTimeout(hideTimer);
 }
 
-/* 全屏管理 — 切换视频时保持全屏状态 */
-var wantFS=!1,fsRestoreTimer=null;
+/* 全屏管理 — 全屏wrap而非body，换视频src不影响全屏 */
+var wantFS=!1;
 
 document.addEventListener('fullscreenchange',onFSChange);
 document.addEventListener('webkitfullscreenchange',onFSChange);
 
 function onFSChange(){
   if(!isFullscreen()){
-    /* 浏览器退出了全屏 — 如果我们还想保持全屏，立即重入 */
-    if(wantFS){
-      clearTimeout(fsRestoreTimer);
-      fsRestoreTimer=setTimeout(function(){
-        if(wantFS&&!isFullscreen())requestFS();
-      },150);
-    }
+    wantFS=!1;
+    W.classList.remove('fs');
+  }else{
+    W.classList.add('fs');
   }
 }
 
@@ -115,28 +123,14 @@ function isFullscreen(){return !!(document.fullscreenElement||document.webkitFul
 
 function requestFS(){
   wantFS=!0;
-  var el=document.body;
+  var el=W;
   var fn=el.requestFullscreen||el.webkitRequestFullscreen;
   if(fn)fn.call(el).catch(function(){});
 }
 
 function exitFS(){
   wantFS=!1;
-  clearTimeout(fsRestoreTimer);
   (document.exitFullscreen||document.webkitExitFullscreen||function(){}).call(document);
-}
-
-/* 在视频src切换前后保持全屏：先记住状态，src设置完成后恢复 */
-function restoreFullscreen(){
-  if(!wantFS)return;
-  clearTimeout(fsRestoreTimer);
-  fsRestoreTimer=setTimeout(function(){
-    if(wantFS&&!isFullscreen())requestFS();
-  },200);
-  /* 备用：如果200ms还没重入，500ms再试 */
-  setTimeout(function(){
-    if(wantFS&&!isFullscreen())requestFS();
-  },500);
 }
 
 function reloadCurrent(){
@@ -154,7 +148,7 @@ V.addEventListener('timeupdate',function(){
   TD.textContent=fmt(V.currentTime)+' / '+fmt(V.duration);
 });
 
-/* 核心交互：单击显示控制栏/暂停，双击全屏 */
+/* 核心交互：单击暂停/显控制栏，双击全屏，长按2倍速 */
 var lastTap=0,dblTapTimer=null;
 
 function handleVideoTap(e){
@@ -183,10 +177,55 @@ function handleVideoTap(e){
   },300);
 }
 
-V.addEventListener('click',handleVideoTap);
-V.addEventListener('touchend',function(e){
-  if(e.target===V){e.preventDefault();handleVideoTap(e)}
+function handleLongPressStart(e){
+  if(e)e.preventDefault();
+  /* 开始长按：记录当前速度，切到2倍速 */
+  if(isLongPress)return;
+  preLongSpeed=curSpeed;
+  longPressTimer=setTimeout(function(){
+    isLongPress=!0;
+    setSpeed(longPressSpeed);
+  },500);
+}
+
+function handleLongPressEnd(e){
+  clearTimeout(longPressTimer);
+  if(isLongPress){
+    /* 松手恢复原速 */
+    isLongPress=!1;
+    setSpeed(preLongSpeed);
+    if(e)e.preventDefault();
+  }
+}
+
+/* 桌面端长按 = mousedown/mouseup */
+V.addEventListener('mousedown',handleLongPressStart);
+V.addEventListener('mouseup',handleLongPressEnd);
+V.addEventListener('mouseleave',handleLongPressEnd);
+
+/* 移动端长按 = touchstart(>500ms)/touchend */
+V.addEventListener('touchstart',function(e){
+  if(e.target===V)handleLongPressStart(e);
 },{passive:!1});
+V.addEventListener('touchend',function(e){
+  if(e.target===V){
+    if(isLongPress){
+      handleLongPressEnd(e);
+    }else{
+      clearTimeout(longPressTimer);
+      handleVideoTap(e);
+    }
+  }
+},{passive:!1});
+V.addEventListener('touchmove',function(){
+  clearTimeout(longPressTimer);
+  isLongPress=!1;
+},{passive:!0});
+
+/* 桌面端点击兜底 */
+V.addEventListener('click',function(e){
+  if(!isMobile)handleVideoTap(e);
+});
 
 /* 音量 */
 VS.addEventListener('input',function(){setVol(this.value/100)});
@@ -197,6 +236,9 @@ VB.addEventListener('click',function(e){
   toast(muted?'已静音':'已取消静音');
 });
 
+/* 倍速按钮 */
+SB.addEventListener('click',function(e){e.stopPropagation();cycleSpeed()});
+
 V.addEventListener('play',function(){showControls()});
 V.addEventListener('pause',function(){
   controlsVisible=!0;
@@ -204,6 +246,9 @@ V.addEventListener('pause',function(){
   TB.classList.add('show');
   clearTimeout(hideTimer);
 });
+
+/* 换视频时保持当前倍速 */
+V.addEventListener('loadstart',function(){V.playbackRate=curSpeed});
 
 /* 随机视频 */
 async function fetchRandom(){
@@ -219,8 +264,6 @@ async function playNext(){
   for(var i=0;i<5;i++){
     try{
       var d=await fetchRandom();
-      /* 在设src前确认全屏意愿 */
-      var wasFS=wantFS;
       V.src='/api/play?token='+encodeURIComponent(d.token);
       V.muted=muted;V.volume=vol;
       V.setAttribute('playsinline','');
@@ -235,8 +278,6 @@ async function playNext(){
       Hi=H.length-1;
       VN.textContent=d.name||'未知';
       updateSourceName();
-      /* 如果之前在横屏全屏，立即恢复 */
-      if(wasFS)restoreFullscreen();
       return;
     }catch(e){
       console.log('Retry '+(i+1)+'/5:',e.message);
@@ -245,7 +286,6 @@ async function playNext(){
   }
   L.classList.remove('show');
   toast('加载失败，重试中…');
-  restoreFullscreen();
   setTimeout(playNext,2e3);
 }
 
@@ -341,6 +381,7 @@ if(!isMobile){
       case'ArrowDown':setVol(vol-0.1);break;
       case'v':case'V':muted=!muted;V.muted=muted;VB.textContent=muted?'🔇':vol<0.5?'🔉':'🔊';toast(muted?'已静音':'已取消静音');break;
       case'f':case'F':if(isFullscreen()){exitFS()}else{requestFS()}break;
+      case'd':case'D':cycleSpeed();break;
       case's':case'S':cycleSource();break;
       case'r':case'R':playNext();break;
     }
