@@ -1,6 +1,6 @@
 import random, os, httpx, asyncio, json
 from pathlib import Path
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from api.auth import resolve_token, is_remote_token, get_remote_info, register_remote
@@ -26,7 +26,6 @@ async def shutdown():
 
 def _parse_remote_response(data, resp):
     """从远程API响应中提取视频URL和名称，兼容多种格式"""
-    # JSON格式: {"video_url":"..."} / {"url":"..."} / {"data":{"url":"..."}}
     if isinstance(data, dict):
         video_url = (data.get("video_url") or data.get("url")
                      or data.get("data", {}).get("url", "")
@@ -40,10 +39,8 @@ def _parse_remote_response(data, resp):
 async def _fetch_remote(remote_url):
     """请求远程视频源，兼容：302 Location跳转、JSON API、直接mp4流、HTML"""
     try:
-        # 第一步：发请求，不follow redirect，检查是否302跳转
         resp = await http_client.get(remote_url, timeout=15.0, follow_redirects=False)
         
-        # 302/301跳转 → 取Location（如 v.nrzj.vip、tmini _t=0.）
         if resp.status_code in (301, 302, 303, 307, 308):
             location = resp.headers.get("location", "")
             if location:
@@ -55,13 +52,11 @@ async def _fetch_remote(remote_url):
         resp.raise_for_status()
         content_type = resp.headers.get("content-type", "").lower()
 
-        # 直接mp4流
         if "video" in content_type or "octet-stream" in content_type:
             video_url = str(resp.url)
             token = register_remote(video_url, "远程视频")
             return {"token": token, "name": "远程视频", "remote": True}
 
-        # JSON响应（如 tmini mp4=json）
         for attempt in range(3):
             try:
                 data = resp.json()
@@ -69,7 +64,6 @@ async def _fetch_remote(remote_url):
                 if video_url:
                     token = register_remote(video_url, video_name)
                     return {"token": token, "name": video_name, "remote": True}
-                # 空url → 重试（tmini偶尔返回空）
                 import asyncio
                 await asyncio.sleep(0.5)
                 resp = await http_client.get(remote_url, timeout=15.0, follow_redirects=False)
@@ -84,7 +78,6 @@ async def _fetch_remote(remote_url):
                 if attempt == 2:
                     pass
 
-        # HTML页面: 提取 video src（如 tucdn）
         html = resp.text
         for pat in [r'src="([^"]*\.mp4[^"]*)"', r"src='([^']*\.mp4[^']*)'"]:
             srcs = __import__("re").findall(pat, html)
@@ -99,7 +92,6 @@ async def _fetch_remote(remote_url):
                 token = register_remote(video_url, "热舞视频")
                 return {"token": token, "name": "热舞视频", "remote": True}
 
-        # 都不匹配
         return None
     except httpx.HTTPError as e:
         print(f"[btv] Remote fetch failed: {e}")
@@ -108,7 +100,6 @@ async def _fetch_remote(remote_url):
 
 @app.get("/api/random")
 async def api_random(source: str | None = None):
-    # 指定远程源
     if source and is_remote_source(source):
         remote_url = get_remote_url(source)
         if remote_url:
@@ -119,10 +110,8 @@ async def api_random(source: str | None = None):
 
     all_sources = get_source_list()
     if source:
-        # 指定本地源
         token = get_random(source)
     else:
-        # 混合随机：按比例选择远程/本地
         remote_names = [s for s in all_sources if is_remote_source(s)]
         local_names = [s for s in all_sources if not is_remote_source(s)]
         if remote_names and (not local_names or random.random() < len(remote_names) / len(all_sources)):
@@ -139,30 +128,36 @@ async def api_random(source: str | None = None):
     return {"token": token, "name": get_name(token)}
 
 
+def _parse_range(range_header, total_size):
+    """解析 Range 头，返回 (start, end, content_length)"""
+    if not range_header or not range_header.startswith("bytes="):
+        return None
+    range_spec = range_header[6:]
+    parts = range_spec.split("-")
+    try:
+        start = int(parts[0]) if parts[0] else 0
+        end = int(parts[1]) if len(parts) > 1 and parts[1] else total_size - 1
+        if end >= total_size:
+            end = total_size - 1
+        return (start, end, end - start + 1)
+    except (ValueError, IndexError):
+        return None
+
 
 @app.get("/api/play")
-async def api_play(token: str):
+async def api_play(token: str, request: Request):
     if is_remote_token(token):
         info = get_remote_info(token)
         if not info:
             return JSONResponse({"error": "invalid remote token"}, status_code=403)
         try:
-            # 直接在最终视频URL上加随机参数防缓存
-            import random
             vid_url = info["url"]
-            sep = "&" if "?" in vid_url else "?"
-            vid_url += f"{sep}_t={random.random()}"
-            resp = await http_client.get(vid_url, timeout=60.0, follow_redirects=True)
-            resp.raise_for_status()
-            ct = resp.headers.get("content-type", "").lower()
-            content_type = "video/mp4" if not ct or ct == "application/octet-stream" else ct
-            return StreamingResponse(
-                content=resp.aiter_bytes(chunk_size=65536),
-                media_type=content_type,
-                headers={"Content-Length": resp.headers.get("content-length", "")},
-            )
-        except httpx.HTTPError:
-            return JSONResponse({"error": "remote video fetch failed"}, status_code=502)
+            # 直接302重定向到视频URL，让浏览器自己处理Range
+            # 比StreamingResponse更稳定，不会黑屏
+            from starlette.responses import RedirectResponse
+            return RedirectResponse(url=vid_url, status_code=302)
+        except Exception:
+            return JSONResponse({"error": "remote video redirect failed"}, status_code=502)
 
     file_path = resolve_token(token)
     if not file_path or not os.path.isfile(file_path):
@@ -182,7 +177,6 @@ async def api_sources():
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return (WEB_DIR / "index.html").read_text(encoding="utf-8")
-
 
 if (WEB_DIR / "css").exists():
     app.mount("/css", StaticFiles(directory=str(WEB_DIR / "css")), name="css")

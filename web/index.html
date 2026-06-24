@@ -23,6 +23,7 @@
     <div class="btv-bar-left">
       <button class="btv-btn" id="btnRandom">🎲</button>
       <button class="btv-btn" id="btnSource">📁</button>
+      <div class="btv-source-name" id="sourceName">全部源</div>
     </div>
     <div class="btv-bar-right">
       <span class="btv-time" id="timeDisplay">00:00 / 00:00</span>
@@ -39,11 +40,6 @@
 
 <div class="btv-loading" id="loading"><div class="btv-spinner"></div></div>
 
-<div class="btv-panel" id="sourcePanel">
-  <div class="btv-panel-title">切换视频源</div>
-  <div id="sourceList"></div>
-</div>
-
 <div class="btv-toast" id="toast"></div>
 
 <script>
@@ -52,34 +48,124 @@ var V=document.getElementById('player'),C=document.getElementById('controls'),
 L=document.getElementById('loading'),T=document.getElementById('toast'),
 P=document.getElementById('progressFill'),Th=document.getElementById('progressThumb'),
 PW=document.getElementById('progressWrap'),TD=document.getElementById('timeDisplay'),
-VB=document.getElementById('btnVolume'),VS=document.getElementById('volSlider');
+VB=document.getElementById('btnVolume'),VS=document.getElementById('volSlider'),
+SN=document.getElementById('sourceName');
 var SL=[],Si=-1,H=[],Hi=-1,vol=1,muted=!1;
 var isMobile=/Android|iPhone|iPod|iPad|Mobile/i.test(navigator.userAgent);
-var hideTimer=null;
+var hideTimer=null,fullscreenSource=null;
 
 function toast(m){T.textContent=m;T.classList.add('show');clearTimeout(T._t);T._t=setTimeout(function(){T.classList.remove('show')},2e3)}
 function fmt(s){if(!s||isNaN(s)||s===Infinity)return'00:00';var m=Math.floor(s/60),sec=Math.floor(s%60);return String(m).padStart(2,'0')+':'+String(sec).padStart(2,'0')}
 function setVol(v){vol=Math.max(0,Math.min(1,v));V.volume=vol;V.muted=vol===0;VS.value=Math.round(vol*100);VB.textContent=vol===0?'🔇':vol<0.5?'🔉':'🔊'}
 function showControls(){C.classList.add('show');clearTimeout(hideTimer);hideTimer=setTimeout(function(){C.classList.remove('show')},3e3)}
+function updateSourceName(){if(!SN)return;SN.textContent=Si>=0&&Si<SL.length?SL[Si]:'全部源'}
+
+function rememberFullscreen(){fullscreenSource=document.fullscreenElement||document.webkitFullscreenElement||null}
+function restoreFullscreen(){
+  if(!fullscreenSource)return;
+  var el=fullscreenSource;fullscreenSource=null;
+  /* 短延迟确保DOM更新后再请求全屏 */
+  setTimeout(function(){
+    if(!document.fullscreenElement&&!document.webkitFullscreenElement){
+      var fn=el.requestFullscreen||el.webkitRequestFullscreen;
+      if(fn)fn.call(el).catch(function(){});
+    }
+  },50);
+}
+
+function reloadCurrent(){
+  if(!V.src)return;
+  var savedSrc=V.src;
+  var savedTime=V.currentTime;
+  V.src='';V.load();
+  setTimeout(function(){
+    V.src=savedSrc;V.load();
+    V.currentTime=savedTime;
+    V.play().catch(function(){});
+  },100);
+}
 
 V.addEventListener('timeupdate',function(){if(!V.duration)return;var p=(V.currentTime/V.duration)*100;P.style.width=p+'%';Th.style.left=p+'%';TD.textContent=fmt(V.currentTime)+' / '+fmt(V.duration)});
 V.addEventListener('click',function(){V.paused?V.play().catch(function(){}):V.pause()});
 VS.addEventListener('input',function(){setVol(this.value/100)});
 VB.addEventListener('click',function(){muted=!muted;V.muted=muted;VB.textContent=muted?'🔇':vol===0?'🔇':vol<0.5?'🔉':'🔊'});
 
-async function fetchRandom(){var s=Si>=0?SL[Si]:null;var u=s?'/api/random?source='+encodeURIComponent(s):'/api/random';var r=await fetch(u);if(!r.ok)throw new Error('fetch failed');return r.json()}
-async function playNext(){L.classList.add('show');for(var i=0;i<3;i++){try{var d=await fetchRandom();V.src='/api/play?token='+encodeURIComponent(d.token);try{await V.play()}catch(e){}L.classList.remove('show');if(Hi<H.length-1)H=H.slice(0,Hi+1);H.push({token:d.token,name:d.name||'未知'});if(H.length>50)H.shift();Hi=H.length-1;return}catch(e){}}L.classList.remove('show');toast('加载失败，重试中…');setTimeout(playNext,2e3)}
+async function fetchRandom(){var s=Si>=0?SL[Si]:null,u=s?'/api/random?source='+encodeURIComponent(s):'/api/random';var r=await fetch(u);if(!r.ok)throw new Error('HTTP '+r.status);return r.json()}
+async function playNext(){
+  rememberFullscreen();
+  L.classList.add('show');
+  for(var i=0;i<5;i++){
+    try{
+      var d=await fetchRandom();
+      V.src='/api/play?token='+encodeURIComponent(d.token);
+      try{await V.play()}catch(e){}
+      L.classList.remove('show');
+      if(Hi<H.length-1)H=H.slice(0,Hi+1);
+      H.push({token:d.token,name:d.name||'未知'});
+      if(H.length>50)H.shift();
+      Hi=H.length-1;
+      updateSourceName();
+      restoreFullscreen();
+      return;
+    }catch(e){
+      console.log('Retry '+(i+1)+'/'+5+':',e.message);
+      if(i<4)await new Promise(function(r){setTimeout(r,500)});
+    }
+  }
+  L.classList.remove('show');
+  toast('加载失败，重试中…');
+  restoreFullscreen();
+  setTimeout(playNext,2e3);
+}
 function seekDelta(d){if(!V.duration)return;V.currentTime=Math.max(0,Math.min(V.duration,V.currentTime+d))}
-function playPrev(){if(Hi>0){Hi--;var a=H[Hi];V.src='/api/play?token='+encodeURIComponent(a.token);V.play().catch(function(){})}}
-V.addEventListener('ended',playNext);
-V.addEventListener('error',function(){setTimeout(playNext,2e3)});
+function playPrev(){if(Hi>0){Hi--;var a=H[Hi];V.src='/api/play?token='+encodeURIComponent(a.token);V.play().catch(function(){});updateSourceName()}}
 
-async function loadSources(){try{var r=await fetch('/api/sources');var d=await r.json();SL=d.sources||[]}catch(e){}renderSourceList()}
-function renderSourceList(){var el=document.getElementById('sourceList');var h='<div class="source-item'+(Si===-1?' active':'')+'" data-i="-1">全部源</div>';SL.forEach(function(name,i){h+='<div class="source-item'+(Si===i?' active':'')+'" data-i="'+i+'">'+name+'</div>'});el.innerHTML=h;el.querySelectorAll('.source-item').forEach(function(item){item.addEventListener('click',function(){Si=parseInt(this.dataset.i);renderSourceList();document.getElementById('sourcePanel').classList.remove('show');playNext()})})}
-document.getElementById('btnSource').addEventListener('click',function(){document.getElementById('sourcePanel').classList.toggle('show')});
-document.getElementById('sourcePanel').addEventListener('click',function(e){if(e.target===this)this.classList.remove('show')});
+V.addEventListener('ended',playNext);
+
+var stallTimer=null;
+function clearStallTimer(){clearTimeout(stallTimer);stallTimer=null}
+function startStallTimer(){
+  clearStallTimer();
+  stallTimer=setTimeout(function(){
+    if(V.paused||V.ended||!V.src||V.readyState>=3)return;
+    toast('视频卡顿，重新加载…');
+    reloadCurrent();
+  },8e3);
+}
+V.addEventListener('waiting',startStallTimer);
+V.addEventListener('playing',clearStallTimer);
+V.addEventListener('canplay',clearStallTimer);
+V.addEventListener('timeupdate',function(){if(stallTimer&&V.readyState>=2)clearStallTimer()});
+
+V.addEventListener('error',function(){
+  L.classList.remove('show');
+  toast('视频加载失败，换下一个…');
+  setTimeout(playNext,1500);
+});
+V.addEventListener('loadeddata',function(){L.classList.remove('show')});
+
+async function loadSources(){try{var r=await fetch('/api/sources');var d=await r.json();SL=d.sources||[]}catch(e){console.log('Load sources error:',e)}updateSourceName()}
+
+/* 📁 点击：循环切换源。顺序：全部源 → 源0 → 源1 → … → 源N-1 → 全部源 */
+function cycleSource(){
+  Si=(Si+1)%(SL.length+1)-1;
+  updateSourceName();
+  toast(SN.textContent);
+  playNext();
+}
+
 document.getElementById('btnRandom').addEventListener('click',playNext);
-document.getElementById('btnFullscreen').addEventListener('click',function(){document.fullscreenElement?document.exitFullscreen():document.body.requestFullscreen()});
+document.getElementById('btnSource').addEventListener('click',cycleSource);
+SN.addEventListener('click',cycleSource);
+
+document.getElementById('btnFullscreen').addEventListener('click',function(){
+  if(document.fullscreenElement||document.webkitFullscreenElement){
+    (document.exitFullscreen||document.webkitExitFullscreen||function(){}).call(document);
+  }else{
+    var el=document.body;
+    (el.requestFullscreen||el.webkitRequestFullscreen||function(){}).call(el);
+  }
+});
 document.getElementById('btnLandscape').addEventListener('click',function(){if(screen.orientation&&screen.orientation.lock){screen.orientation.type.includes('landscape')?screen.orientation.unlock():screen.orientation.lock('landscape').catch(function(){})}});
 
 if(!isMobile){
@@ -92,7 +178,7 @@ if(!isMobile){
       case'ArrowDown':setVol(vol-0.1);break;
       case'v':case'V':muted=!muted;V.muted=muted;VB.textContent=muted?'🔇':vol<0.5?'🔉':'🔊';break;
       case'f':case'F':document.getElementById('btnFullscreen').click();break;
-      case's':case'S':document.getElementById('btnSource').click();break;
+      case's':case'S':cycleSource();break;
       case'r':case'R':playNext();break;
     }
   });
@@ -100,12 +186,15 @@ if(!isMobile){
   document.addEventListener('mousemove',function(){showControls()});
   C.addEventListener('mouseenter',function(){clearTimeout(hideTimer)});
   C.addEventListener('mouseleave',function(){hideTimer=setTimeout(function(){C.classList.remove('show')},2e3)});
-  PW.addEventListener('click',function(e){if(!V.duration)return;var r=PW.getBoundingClientRect();V.currentTime=((e.clientX-r.left)/r.width)*V.duration});PW.addEventListener('touchstart',function(e){tActive=!0;var t=e.touches[0];tsX=t.clientX},{passive:!1});PW.addEventListener('touchmove',function(e){if(!tActive||!V.duration)return;var t=e.touches[0],dx=t.clientX-tsX;e.preventDefault();V.currentTime=Math.max(0,Math.min(V.duration,V.currentTime+dx/50))},{passive:!1});PW.addEventListener('touchend',function(){tActive=!1});
+  PW.addEventListener('click',function(e){if(!V.duration)return;var r=PW.getBoundingClientRect();V.currentTime=((e.clientX-r.left)/r.width)*V.duration});
+  PW.addEventListener('touchstart',function(e){tActive=!0;var t=e.touches[0];tsX=t.clientX},{passive:!1});
+  PW.addEventListener('touchmove',function(e){if(!tActive||!V.duration)return;var t=e.touches[0],dx=t.clientX-tsX;e.preventDefault();V.currentTime=Math.max(0,Math.min(V.duration,V.currentTime+dx/50))},{passive:!1});
+  PW.addEventListener('touchend',function(){tActive=!1});
 }
 
 if(isMobile){
   var tsX=0,tsY=0,tsVol=0,tActive=!1,halfW=window.innerWidth/2;
-  document.addEventListener('touchstart',function(e){if(e.target.closest('.btv-panel,.btv-btn,.btv-vol-slider-wrap,.btv-progress,#btnLandscape'))return;var t=e.touches[0];tsX=t.clientX;tsY=t.clientY;tsVol=vol;halfW=window.innerWidth/2;tActive=!0},{passive:!1});
+  document.addEventListener('touchstart',function(e){if(e.target.closest('.btv-btn,.btv-source-name,.btv-vol-slider-wrap,.btv-progress,#btnLandscape'))return;var t=e.touches[0];tsX=t.clientX;tsY=t.clientY;tsVol=vol;halfW=window.innerWidth/2;tActive=!0},{passive:!1});
   document.addEventListener('touchmove',function(e){if(!tActive)return;var t=e.touches[0],dx=t.clientX-tsX,dy=t.clientY-tsY;if(tsX>halfW){if(Math.abs(dy)>Math.abs(dx)&&Math.abs(dy)>5){e.preventDefault();setVol(tsVol-dy/300)}}else{if(Math.abs(dx)>5){e.preventDefault();V.currentTime=Math.max(0,Math.min(V.duration,V.currentTime+dx/50));tsX=t.clientX}}},{passive:!1});
   document.addEventListener('touchend',function(){tActive=!1});
   V.addEventListener('click',showControls);
