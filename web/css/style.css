@@ -75,3 +75,41 @@ video{position:fixed;top:0;left:0;width:100%;height:100%;object-fit:contain;curs
   .btv-vol-slider-wrap{display:none!important}
   .btv-vol-btn:hover+.btv-vol-slider-wrap{display:none!important}
 }
+
+/* 顶部常驻信息栏 */
+.btv-topbar{
+  position:fixed;
+  top:0;left:0;right:0;
+  z-index:9;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding:10px 16px 8px;
+  background:linear-gradient(rgba(0,0,0,.7),transparent);
+  pointer-events:none;
+  opacity:0;
+  transition:opacity .4s;
+}
+.btv-topbar.show{opacity:1}
+.btv-topbar-left{
+  color:#fff;
+  font-size:14px;
+  font-weight:600;
+  text-shadow:0 1px 4px rgba(0,0,0,.8);
+  max-width:65%;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.btv-topbar-right{
+  color:rgba(255,255,255,.85);
+  font-size:13px;
+  font-variant-numeric:tabular-nums;
+  text-shadow:0 1px 4px rgba(0,0,0,.8);
+  white-space:nowrap;
+}
+@media(max-width:768px){
+  .btv-topbar{padding:8px 10px 6px}
+  .btv-topbar-left{font-size:12px;max-width:55%}
+  .btv-topbar-right{font-size:11px}
+}

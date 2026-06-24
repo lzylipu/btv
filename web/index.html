@@ -12,6 +12,12 @@
 
 <video id="player" preload autoplay playsinline></video>
 
+<!-- 常驻顶部信息栏 -->
+<div class="btv-topbar" id="topbar">
+  <div class="btv-topbar-left" id="videoName">未知</div>
+  <div class="btv-topbar-right" id="clockDisplay">00:00</div>
+</div>
+
 <div class="btv-controls" id="controls">
   <div class="btv-progress" id="progressWrap">
     <div class="btv-progress-bg">
@@ -48,73 +54,165 @@ L=document.getElementById('loading'),T=document.getElementById('toast'),
 P=document.getElementById('progressFill'),Th=document.getElementById('progressThumb'),
 PW=document.getElementById('progressWrap'),TD=document.getElementById('timeDisplay'),
 VB=document.getElementById('btnVolume'),VS=document.getElementById('volSlider'),
-SN=document.getElementById('sourceName');
+SN=document.getElementById('sourceName'),
+VN=document.getElementById('videoName'),CLK=document.getElementById('clockDisplay'),
+TB=document.getElementById('topbar');
+
 var SL=[],Si=-1,H=[],Hi=-1,vol=1,muted=!1;
 var isMobile=/Android|iPhone|iPod|iPad|Mobile/i.test(navigator.userAgent);
-var hideTimer=null,fullscreenSource=null;
+var controlsVisible=!1,hideTimer=null;
 var seekStep=20;
 
 function toast(m){T.textContent=m;T.classList.add('show');clearTimeout(T._t);T._t=setTimeout(function(){T.classList.remove('show')},2e3)}
 function fmt(s){if(!s||isNaN(s)||s===Infinity)return'00:00';var m=Math.floor(s/60),sec=Math.floor(s%60);return String(m).padStart(2,'0')+':'+String(sec).padStart(2,'0')}
-function setVol(v){vol=Math.max(0,Math.min(1,v));V.volume=vol;V.muted=vol===0;VS.value=Math.round(vol*100);VB.textContent=vol===0?'🔇':vol<0.5?'🔉':'🔊';toast('音量 '+(vol<0.1?'':String(Math.round(vol*100))+'%'))}
-function showControls(){C.classList.add('show');clearTimeout(hideTimer);hideTimer=setTimeout(function(){C.classList.remove('show')},5e3)}
+function setVol(v){vol=Math.max(0,Math.min(1,v));V.volume=vol;V.muted=vol===0;VS.value=Math.round(vol*100);VB.textContent=vol===0?'🔇':vol<0.5?'🔉':'🔊';toast('音量 '+Math.round(vol*100)+'%')}
 function updateSourceName(){if(!SN)return;SN.textContent=Si===0?'全部源':SL[Si-1]||'全部源'}
 
-var wasFS=false,wantFS=false;
-/* 监听全屏变化，记录实际状态 */
-document.addEventListener('fullscreenchange',function(){wasFS=!!(document.fullscreenElement||document.webkitFullscreenElement);if(!wasFS)wantFS=false});
-document.addEventListener('webkitfullscreenchange',function(){wasFS=!!(document.fullscreenElement||document.webkitFullscreenElement);if(!wasFS)wantFS=false});
-function rememberFullscreen(){wasFS=!!(document.fullscreenElement||document.webkitFullscreenElement);wantFS=wasFS}
+function updateClock(){
+  var d=new Date();
+  CLK.textContent=String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+}
+updateClock();
+setInterval(updateClock,10000);
+
+function showControls(){
+  controlsVisible=!0;
+  C.classList.add('show');
+  TB.classList.add('show');
+  clearTimeout(hideTimer);
+  hideTimer=setTimeout(function(){
+    if(!V.paused){
+      controlsVisible=!1;
+      C.classList.remove('show');
+      TB.classList.remove('show');
+    }
+  },5e3);
+}
+function hideControlsNow(){
+  controlsVisible=!1;
+  C.classList.remove('show');
+  TB.classList.remove('show');
+  clearTimeout(hideTimer);
+}
+
+var wantFS=!1;
+document.addEventListener('fullscreenchange',function(){if(!document.fullscreenElement)wantFS=!1});
+document.addEventListener('webkitfullscreenchange',function(){if(!document.webkitFullscreenElement)wantFS=!1});
+
+function isFullscreen(){return !!(document.fullscreenElement||document.webkitFullscreenElement)}
+
+function requestFS(){
+  wantFS=!0;
+  var el=document.body;
+  var fn=el.requestFullscreen||el.webkitRequestFullscreen;
+  if(fn)fn.call(el).catch(function(){});
+}
+
 function restoreFullscreen(){
   if(!wantFS)return;
-  /* 300ms延迟确保DOM/视频流稳定后再请求全屏 */
   setTimeout(function(){
-    if(!document.fullscreenElement&&!document.webkitFullscreenElement){
-      var el=document.body;
-      var fn=el.requestFullscreen||el.webkitRequestFullscreen;
-      if(fn)fn.call(el).catch(function(){});
-    }
+    if(!isFullscreen())requestFS();
   },300);
 }
 
 function reloadCurrent(){
   if(!V.src)return;
-  var savedSrc=V.src;
-  var savedTime=V.currentTime;
+  var savedSrc=V.src,savedTime=V.currentTime;
   V.src='';V.load();
-  setTimeout(function(){
-    V.src=savedSrc;V.load();
-    V.currentTime=savedTime;
-    V.play().catch(function(){});
-  },100);
+  setTimeout(function(){V.src=savedSrc;V.load();V.currentTime=savedTime;V.play().catch(function(){})},100);
 }
 
-V.addEventListener('timeupdate',function(){if(!V.duration)return;var p=(V.currentTime/V.duration)*100;P.style.width=p+'%';Th.style.left=p+'%';TD.textContent=fmt(V.currentTime)+' / '+fmt(V.duration)});
-V.addEventListener('click',function(){V.paused?V.play().catch(function(){}):V.pause();if(isMobile)showControls()});
-VS.addEventListener('input',function(){setVol(this.value/100)});
-V.addEventListener('volumechange',function(){toast('🔊 '+Math.round(V.volume*100)+'%')});
-VB.addEventListener('click',function(){muted=!muted;V.muted=muted;VB.textContent=muted?'🔇':vol===0?'🔇':vol<0.5?'🔉':'🔊';toast(muted?'已静音':'已取消静音')});
+V.addEventListener('timeupdate',function(){
+  if(!V.duration)return;
+  var p=(V.currentTime/V.duration)*100;
+  P.style.width=p+'%';
+  Th.style.left=p+'%';
+  TD.textContent=fmt(V.currentTime)+' / '+fmt(V.duration);
+});
 
-async function fetchRandom(){var s=Si===0?null:SL[Si-1],u=s?'/api/random?source='+encodeURIComponent(s):'/api/random';var r=await fetch(u);if(!r.ok)throw new Error('HTTP '+r.status);return r.json()}
+/* 核心交互：单击显示控制栏/暂停，双击全屏 */
+var lastTap=0,dblTapTimer=null;
+
+function handleVideoTap(e){
+  if(e)e.preventDefault();
+  var now=Date.now();
+
+  if(now-lastTap<300){
+    clearTimeout(dblTapTimer);
+    lastTap=0;
+    if(isFullscreen()){
+      (document.exitFullscreen||document.webkitExitFullscreen||function(){}).call(document);
+    }else{
+      requestFS();
+    }
+    return;
+  }
+  lastTap=now;
+
+  dblTapTimer=setTimeout(function(){
+    if(controlsVisible){
+      if(V.paused){V.play().catch(function(){})}else{V.pause()}
+      if(V.paused){clearTimeout(hideTimer)}
+    }else{
+      showControls();
+    }
+  },300);
+}
+
+V.addEventListener('click',handleVideoTap);
+V.addEventListener('touchend',function(e){
+  if(e.target===V){e.preventDefault();handleVideoTap(e)}
+},{passive:!1});
+
+/* 音量 */
+VS.addEventListener('input',function(){setVol(this.value/100)});
+VB.addEventListener('click',function(e){
+  e.stopPropagation();
+  muted=!muted;V.muted=muted;
+  VB.textContent=muted?'🔇':vol===0?'🔇':vol<0.5?'🔉':'🔊';
+  toast(muted?'已静音':'已取消静音');
+});
+
+V.addEventListener('play',function(){showControls()});
+V.addEventListener('pause',function(){
+  controlsVisible=!0;
+  C.classList.add('show');
+  TB.classList.add('show');
+  clearTimeout(hideTimer);
+});
+
+/* 随机视频 */
+async function fetchRandom(){
+  var s=Si===0?null:SL[Si-1],
+      u=s?'/api/random?source='+encodeURIComponent(s):'/api/random';
+  var r=await fetch(u);
+  if(!r.ok)throw new Error('HTTP '+r.status);
+  return r.json();
+}
+
 async function playNext(){
-  rememberFullscreen();
   L.classList.add('show');
   for(var i=0;i<5;i++){
     try{
       var d=await fetchRandom();
       V.src='/api/play?token='+encodeURIComponent(d.token);
       V.muted=muted;V.volume=vol;
-      try{await V.play()}catch(e){}
+      V.setAttribute('playsinline','');
+      try{await V.play()}catch(e){V.muted=!0;try{await V.play()}catch(e2){}}
+      V.addEventListener('playing',function unmute(){
+        V.muted=muted;V.volume=vol;V.removeEventListener('playing',unmute);
+      },{once:!0});
       L.classList.remove('show');
       if(Hi<H.length-1)H=H.slice(0,Hi+1);
       H.push({token:d.token,name:d.name||'未知'});
       if(H.length>50)H.shift();
       Hi=H.length-1;
+      VN.textContent=d.name||'未知';
       updateSourceName();
       restoreFullscreen();
       return;
     }catch(e){
-      console.log('Retry '+(i+1)+'/'+5+':',e.message);
+      console.log('Retry '+(i+1)+'/5:',e.message);
       if(i<4)await new Promise(function(r){setTimeout(r,500)});
     }
   }
@@ -123,19 +221,20 @@ async function playNext(){
   restoreFullscreen();
   setTimeout(playNext,2e3);
 }
+
 function seekDelta(d){if(!V.duration)return;V.currentTime=Math.max(0,Math.min(V.duration,V.currentTime+d));toast((d>0?'+':'')+d+'s')}
-function playPrev(){if(Hi>0){Hi--;var a=H[Hi];V.src='/api/play?token='+encodeURIComponent(a.token);V.play().catch(function(){});updateSourceName()}}
+function playPrev(){if(Hi>0){Hi--;var a=H[Hi];V.src='/api/play?token='+encodeURIComponent(a.token);V.play().catch(function(){});VN.textContent=a.name||'未知';updateSourceName()}}
 
 V.addEventListener('ended',playNext);
 
+/* 卡顿检测 */
 var stallTimer=null;
 function clearStallTimer(){clearTimeout(stallTimer);stallTimer=null}
 function startStallTimer(){
   clearStallTimer();
   stallTimer=setTimeout(function(){
     if(V.paused||V.ended||!V.src||V.readyState>=3)return;
-    toast('视频卡顿，重新加载…');
-    reloadCurrent();
+    toast('视频卡顿，重新加载…');reloadCurrent();
   },8e3);
 }
 V.addEventListener('waiting',startStallTimer);
@@ -143,48 +242,55 @@ V.addEventListener('playing',clearStallTimer);
 V.addEventListener('canplay',clearStallTimer);
 V.addEventListener('timeupdate',function(){if(stallTimer&&V.readyState>=2)clearStallTimer()});
 
-V.addEventListener('error',function(){
-  L.classList.remove('show');
-  toast('视频加载失败，换下一个…');
-  setTimeout(playNext,1500);
-});
+V.addEventListener('error',function(){L.classList.remove('show');toast('视频加载失败，换下一个…');setTimeout(playNext,1500)});
 V.addEventListener('loadeddata',function(){L.classList.remove('show')});
 
 async function loadSources(){try{var r=await fetch('/api/sources');var d=await r.json();SL=d.sources||[]}catch(e){console.log('Load sources error:',e)}updateSourceName()}
 
-/* 点击源名切换源。顺序：全部源 → 源0 → 源1 → … → 源N-1 → 全部源 */
+/* 点击源名：只切换源，不暂停、不随机、不同步 */
 function cycleSource(){
-  if(!SL.length){toast('无可用源');return;}
+  if(!SL.length){toast('无可用源');return}
   var total=SL.length+1;
   Si=(Si+1)%total;
   updateSourceName();
   toast(SN.textContent);
-  playNext();
 }
 
-document.getElementById('btnRandom').addEventListener('click',playNext);
-SN.addEventListener('click',cycleSource);
+/* 骰子按钮：唯一触发下一个视频的方式 */
+document.getElementById('btnRandom').addEventListener('click',function(e){
+  e.stopPropagation();
+  playNext();
+});
 
-document.getElementById('btnFullscreen').addEventListener('click',function(){
-  if(document.fullscreenElement||document.webkitFullscreenElement){
+SN.addEventListener('click',function(e){e.stopPropagation();cycleSource()});
+
+document.getElementById('btnFullscreen').addEventListener('click',function(e){
+  e.stopPropagation();
+  if(isFullscreen()){
     (document.exitFullscreen||document.webkitExitFullscreen||function(){}).call(document);
   }else{
-    var el=document.body;
-    (el.requestFullscreen||el.webkitRequestFullscreen||function(){}).call(el);
+    requestFS();
   }
 });
-document.getElementById('btnLandscape').addEventListener('click',function(){if(screen.orientation&&screen.orientation.lock){screen.orientation.type.includes('landscape')?screen.orientation.unlock():screen.orientation.lock('landscape').catch(function(){})}});
 
+document.getElementById('btnLandscape').addEventListener('click',function(e){
+  e.stopPropagation();
+  if(screen.orientation&&screen.orientation.lock){
+    screen.orientation.type.includes('landscape')?screen.orientation.unlock():screen.orientation.lock('landscape').catch(function(){});
+  }
+});
+
+/* 桌面端 */
 if(!isMobile){
   document.addEventListener('keydown',function(e){
     switch(e.key){
-      case' ':e.preventDefault();V.paused?V.play().catch(function(){}):V.pause();break;
+      case' ':e.preventDefault();if(V.paused){V.play().catch(function(){})}else{V.pause()}break;
       case'ArrowLeft':seekDelta(-seekStep);break;
       case'ArrowRight':seekDelta(seekStep);break;
       case'ArrowUp':setVol(vol+0.1);break;
       case'ArrowDown':setVol(vol-0.1);break;
       case'v':case'V':muted=!muted;V.muted=muted;VB.textContent=muted?'🔇':vol<0.5?'🔉':'🔊';toast(muted?'已静音':'已取消静音');break;
-      case'f':case'F':document.getElementById('btnFullscreen').click();break;
+      case'f':case'F':if(isFullscreen()){(document.exitFullscreen||document.webkitExitFullscreen||function(){}).call(document)}else{requestFS()}break;
       case's':case'S':cycleSource();break;
       case'r':case'R':playNext();break;
     }
@@ -192,19 +298,68 @@ if(!isMobile){
   document.addEventListener('wheel',function(e){e.preventDefault();setVol(vol-e.deltaY*0.001)},{passive:!1});
   document.addEventListener('mousemove',function(){showControls()});
   C.addEventListener('mouseenter',function(){clearTimeout(hideTimer)});
-  C.addEventListener('mouseleave',function(){hideTimer=setTimeout(function(){C.classList.remove('show')},5e3)});
-  PW.addEventListener('click',function(e){if(!V.duration)return;var r=PW.getBoundingClientRect();V.currentTime=((e.clientX-r.left)/r.width)*V.duration;toast('进度 '+fmt(V.currentTime)+' / '+fmt(V.duration))});
-  PW.addEventListener('touchstart',function(e){tActive=!0;var t=e.touches[0];tsX=t.clientX},{passive:!1});
-  PW.addEventListener('touchmove',function(e){if(!tActive||!V.duration)return;var t=e.touches[0],dx=t.clientX-tsX;e.preventDefault();V.currentTime=Math.max(0,Math.min(V.duration,V.currentTime+dx/50))},{passive:!1});
-  PW.addEventListener('touchend',function(){tActive=!1});
+  C.addEventListener('mouseleave',function(){hideTimer=setTimeout(function(){if(!V.paused){C.classList.remove('show');TB.classList.remove('show');controlsVisible=!1}},5e3)});
+
+  PW.addEventListener('click',function(e){
+    e.stopPropagation();
+    if(!V.duration)return;
+    var r=PW.getBoundingClientRect();
+    V.currentTime=((e.clientX-r.left)/r.width)*V.duration;
+    toast('进度 '+fmt(V.currentTime)+' / '+fmt(V.duration));
+  });
+
+  var progressDragging=!1;
+  PW.addEventListener('mousedown',function(e){e.preventDefault();progressDragging=!0;var r=PW.getBoundingClientRect();V.currentTime=Math.max(0,Math.min(V.duration,((e.clientX-r.left)/r.width)*V.duration))});
+  document.addEventListener('mousemove',function(e){if(progressDragging&&V.duration){var r=PW.getBoundingClientRect();V.currentTime=Math.max(0,Math.min(V.duration,((e.clientX-r.left)/r.width)*V.duration))}});
+  document.addEventListener('mouseup',function(){progressDragging=!1});
 }
 
+/* 移动端 */
 if(isMobile){
-  var tsX=0,tsY=0,tsVol=0,tActive=!1,halfW=window.innerWidth/2;
-  document.addEventListener('touchstart',function(e){if(e.target.closest('.btv-btn,.btv-source-name,.btv-vol-slider-wrap,.btv-progress,#btnLandscape'))return;var t=e.touches[0];tsX=t.clientX;tsY=t.clientY;tsVol=vol;halfW=window.innerWidth/2;tActive=!0},{passive:!1});
-  document.addEventListener('touchmove',function(e){if(!tActive)return;var t=e.touches[0],dx=t.clientX-tsX,dy=t.clientY-tsY;if(tsX>halfW){if(Math.abs(dy)>Math.abs(dx)&&Math.abs(dy)>5){e.preventDefault();setVol(tsVol-dy/300);toast('🔊 '+Math.round(vol*100)+'%')}}else{if(Math.abs(dx)>5){e.preventDefault();var step=dx>0?seekStep:-seekStep;V.currentTime=Math.max(0,Math.min(V.duration,V.currentTime+step));tsX=t.clientX}}},{passive:!1});
-  document.addEventListener('touchend',function(){tActive=!1});
+  var tsX=0,tsY=0,tsVol=0,tActive=!1,halfW=0;
 
+  document.addEventListener('touchstart',function(e){
+    if(e.target.closest('.btv-btn,.btv-source-name,.btv-vol-slider-wrap,.btv-progress,#btnLandscape,.btv-controls')){
+      return;
+    }
+    var t=e.touches[0];
+    tsX=t.clientX;tsY=t.clientY;tsVol=vol;
+    halfW=window.innerWidth/2;tActive=!0;
+  },{passive:!0});
+
+  document.addEventListener('touchmove',function(e){
+    if(!tActive)return;
+    var t=e.touches[0],dx=t.clientX-tsX,dy=t.clientY-tsY;
+
+    if(tsX>halfW){
+      if(Math.abs(dy)>Math.abs(dx)&&Math.abs(dy)>5){
+        e.preventDefault();
+        setVol(tsVol-dy/300);
+      }
+    }else{
+      if(Math.abs(dx)>5){
+        e.preventDefault();
+        var step=dx>0?seekStep:-seekStep;
+        V.currentTime=Math.max(0,Math.min(V.duration||0,V.currentTime+step));
+        tsX=t.clientX;
+      }
+    }
+  },{passive:!1});
+
+  document.addEventListener('touchend',function(){tActive=!1},{passive:!0});
+
+  /* 进度条触摸（移动端） */
+  PW.addEventListener('touchstart',function(e){
+    e.stopPropagation();
+    var t=e.touches[0],r=PW.getBoundingClientRect();
+    if(V.duration)V.currentTime=Math.max(0,Math.min(V.duration,((t.clientX-r.left)/r.width)*V.duration));
+  },{passive:!1});
+  PW.addEventListener('touchmove',function(e){
+    e.preventDefault();e.stopPropagation();
+    var t=e.touches[0],r=PW.getBoundingClientRect();
+    if(V.duration)V.currentTime=Math.max(0,Math.min(V.duration,((t.clientX-r.left)/r.width)*V.duration));
+  },{passive:!1});
+  PW.addEventListener('touchend',function(e){e.stopPropagation()},{passive:!1});
 }
 
 (async function(){await loadSources();setTimeout(playNext,300)})();
