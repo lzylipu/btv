@@ -5,7 +5,7 @@
 
 Self-hosted, zero-config, Bilibili-inspired dark-theme short video player. Local mounts + remote API mix, mobile gestures & PC keyboard dual-mode controls.
 
-**English | [中文](./README.zh-CN.md)**
+**English | [中文](./README.md)**
 
 ---
 
