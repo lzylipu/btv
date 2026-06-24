@@ -364,6 +364,7 @@ V.addEventListener('timeupdate',function(){
   if(V.currentTime>0&&!pendingNext&&V.currentTime>V.duration*0.9){
     prefetchNext();
   }
+});
 
 /* 卡顿检测 */
 var stallTimer=null;
