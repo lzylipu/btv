@@ -148,6 +148,7 @@ async function loadSources(){try{var r=await fetch('/api/sources');var d=await r
 
 /* 📁 点击：循环切换源。顺序：全部源 → 源0 → 源1 → … → 源N-1 → 全部源 */
 function cycleSource(){
+  if(!SL.length){toast('无可用源');return;}
   Si=(Si+1)%(SL.length+1)-1;
   updateSourceName();
   toast(SN.textContent);
@@ -156,7 +157,6 @@ function cycleSource(){
 
 document.getElementById('btnRandom').addEventListener('click',playNext);
 document.getElementById('btnSource').addEventListener('click',cycleSource);
-SN.addEventListener('click',cycleSource);
 
 document.getElementById('btnFullscreen').addEventListener('click',function(){
   if(document.fullscreenElement||document.webkitFullscreenElement){
