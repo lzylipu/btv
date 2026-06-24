@@ -17,8 +17,5 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - btv-data:/data
+      - ./data:/data
       - /srv/videos:/videos:ro
-
-volumes:
-  btv-data:
