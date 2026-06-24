@@ -22,7 +22,6 @@
   <div class="btv-bar">
     <div class="btv-bar-left">
       <button class="btv-btn" id="btnRandom">🎲</button>
-      <button class="btv-btn" id="btnSource">📁</button>
       <div class="btv-source-name" id="sourceName">全部源</div>
     </div>
     <div class="btv-bar-right">
@@ -146,7 +145,7 @@ V.addEventListener('loadeddata',function(){L.classList.remove('show')});
 
 async function loadSources(){try{var r=await fetch('/api/sources');var d=await r.json();SL=d.sources||[]}catch(e){console.log('Load sources error:',e)}updateSourceName()}
 
-/* 📁 点击：循环切换源。顺序：全部源 → 源0 → 源1 → … → 源N-1 → 全部源 */
+/* 点击源名切换源。顺序：全部源 → 源0 → 源1 → … → 源N-1 → 全部源 */
 function cycleSource(){
   if(!SL.length){toast('无可用源');return;}
   Si=(Si+1)%(SL.length+1)-1;
@@ -156,7 +155,7 @@ function cycleSource(){
 }
 
 document.getElementById('btnRandom').addEventListener('click',playNext);
-document.getElementById('btnSource').addEventListener('click',cycleSource);
+SN.addEventListener('click',cycleSource);
 
 document.getElementById('btnFullscreen').addEventListener('click',function(){
   if(document.fullscreenElement||document.webkitFullscreenElement){
