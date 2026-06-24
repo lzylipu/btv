@@ -57,7 +57,7 @@ function toast(m){T.textContent=m;T.classList.add('show');clearTimeout(T._t);T._
 function fmt(s){if(!s||isNaN(s)||s===Infinity)return'00:00';var m=Math.floor(s/60),sec=Math.floor(s%60);return String(m).padStart(2,'0')+':'+String(sec).padStart(2,'0')}
 function setVol(v){vol=Math.max(0,Math.min(1,v));V.volume=vol;V.muted=vol===0;VS.value=Math.round(vol*100);VB.textContent=vol===0?'🔇':vol<0.5?'🔉':'🔊'}
 function showControls(){C.classList.add('show');clearTimeout(hideTimer);hideTimer=setTimeout(function(){C.classList.remove('show')},3e3)}
-function updateSourceName(){if(!SN)return;SN.textContent=Si>=0&&Si<SL.length?SL[Si]:'全部源'}
+function updateSourceName(){if(!SN)return;SN.textContent=Si===0?'全部源':SL[Si-1]||'全部源'}
 
 function rememberFullscreen(){fullscreenSource=document.fullscreenElement||document.webkitFullscreenElement||null}
 function restoreFullscreen(){
@@ -89,7 +89,7 @@ V.addEventListener('click',function(){V.paused?V.play().catch(function(){}):V.pa
 VS.addEventListener('input',function(){setVol(this.value/100)});
 VB.addEventListener('click',function(){muted=!muted;V.muted=muted;VB.textContent=muted?'🔇':vol===0?'🔇':vol<0.5?'🔉':'🔊'});
 
-async function fetchRandom(){var s=Si>=0?SL[Si]:null,u=s?'/api/random?source='+encodeURIComponent(s):'/api/random';var r=await fetch(u);if(!r.ok)throw new Error('HTTP '+r.status);return r.json()}
+async function fetchRandom(){var s=Si===0?null:SL[Si-1],u=s?'/api/random?source='+encodeURIComponent(s):'/api/random';var r=await fetch(u);if(!r.ok)throw new Error('HTTP '+r.status);return r.json()}
 async function playNext(){
   rememberFullscreen();
   L.classList.add('show');
@@ -148,7 +148,8 @@ async function loadSources(){try{var r=await fetch('/api/sources');var d=await r
 /* 点击源名切换源。顺序：全部源 → 源0 → 源1 → … → 源N-1 → 全部源 */
 function cycleSource(){
   if(!SL.length){toast('无可用源');return;}
-  Si=(Si+1)%(SL.length+1)-1;
+  var total=SL.length+1;
+  Si=(Si+1)%total;
   updateSourceName();
   toast(SN.textContent);
   playNext();
