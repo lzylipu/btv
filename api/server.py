@@ -1,6 +1,7 @@
 import random, os, httpx, asyncio, json
 from pathlib import Path
 from fastapi import FastAPI, Request
+from starlette.responses import RedirectResponse
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from api.auth import resolve_token, is_remote_token, get_remote_info, register_remote
@@ -11,9 +12,15 @@ app = FastAPI(title="BTV", docs_url=None, redoc_url=None)
 WEB_DIR = Path(__file__).parent.parent / "web"
 http_client = httpx.AsyncClient(timeout=30.0, follow_redirects=True)
 
+FFMPEG_PATH = "/usr/bin/ffmpeg"
+FFPROBE_PATH = "/usr/bin/ffprobe"
+
 
 @app.on_event("startup")
 async def startup():
+    # Check ffmpeg availability
+    has_ffmpeg = os.path.isfile(FFMPEG_PATH) and os.access(FFMPEG_PATH, os.X_OK)
+    print(f"[btv] ffmpeg: {'available' if has_ffmpeg else 'NOT found (transcoding disabled)'}")
     scan_all()
     stats = get_stats()
     print(f"[btv] Ready: {stats['local_total']} local, {stats['remote_count']} remote sources")
@@ -128,33 +135,93 @@ async def api_random(source: str | None = None):
     return {"token": token, "name": get_name(token)}
 
 
-def _parse_range(range_header, total_size):
-    """解析 Range 头，返回 (start, end, content_length)"""
-    if not range_header or not range_header.startswith("bytes="):
+# ────────────── ffmpeg transcoding ──────────────
+
+async def _probe_codec(source: str, is_url: bool = False) -> str | None:
+    """用ffprobe检测视频编码，返回codec名。失败返回None。"""
+    if not os.path.isfile(FFPROBE_PATH):
         return None
-    range_spec = range_header[6:]
-    parts = range_spec.split("-")
     try:
-        start = int(parts[0]) if parts[0] else 0
-        end = int(parts[1]) if len(parts) > 1 and parts[1] else total_size - 1
-        if end >= total_size:
-            end = total_size - 1
-        return (start, end, end - start + 1)
-    except (ValueError, IndexError):
+        args = [FFPROBE_PATH, "-v", "quiet", "-print_format", "json",
+                "-show_streams", "-select_streams", "v:0"]
+        if is_url:
+            args.append("-i")
+            args.append(source)
+        else:
+            args.append(source)
+        proc = await asyncio.create_subprocess_exec(
+            *args,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15)
+        info = json.loads(stdout)
+        codec = info.get("streams", [{}])[0].get("codec_name", "")
+        return codec if codec else None
+    except Exception:
         return None
 
+
+async def _ffmpeg_transcode(source: str, is_url: bool = False):
+    """用ffmpeg将视频实时转码为H.264 MP4流（stdout pipe）"""
+    input_args = ["-i", source]
+    if is_url:
+        # 远程URL需要更长的超时和重连
+        input_args = ["-reconnect", "1", "-reconnect_streamed", "1",
+                       "-reconnect_delay_max", "5", "-i", source]
+    proc = await asyncio.create_subprocess_exec(
+        FFMPEG_PATH,
+        *input_args,
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+        "-c:a", "aac", "-b:a", "128k",
+        "-movflags", "frag_keyframe+empty_moov",
+        "-f", "mp4",
+        "-",  # stdout
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE
+    )
+    return proc
+
+
+def _needs_transcode(codec: str | None) -> bool:
+    """判断编码是否需要转码。h264/hevc/av1浏览器原生支持。"""
+    if not codec:
+        return False
+    return codec not in ("h264", "hevc", "av1", "vp8", "vp9", "av1")
+
+
+# ────────────── /api/play ──────────────
 
 @app.get("/api/play")
-async def api_play(token: str, request: Request):
+async def api_play(token: str, request: Request, transcode: bool = False):
+    """播放视频。transcode=1 强制转码（黑屏重试时用）。"""
     if is_remote_token(token):
         info = get_remote_info(token)
         if not info:
             return JSONResponse({"error": "invalid remote token"}, status_code=403)
+        vid_url = info["url"]
+
+        if transcode:
+            # 黑屏重试：检测编码+转码流
+            codec = await _probe_codec(vid_url, is_url=True)
+            if codec and _needs_transcode(codec):
+                print(f"[btv] Transcoding remote video ({codec} -> h264): {vid_url[:60]}...")
+                proc = await _ffmpeg_transcode(vid_url, is_url=True)
+                return StreamingResponse(
+                    content=proc.stdout,
+                    media_type="video/mp4",
+                    headers={"X-Transcoded": codec, "Cache-Control": "no-cache"},
+                )
+            # 即使不需要转码也用ffmpeg重新封包（修复编码问题）
+            print(f"[btv] Re-muxing remote video via ffmpeg: {vid_url[:60]}...")
+            proc = await _ffmpeg_transcode(vid_url, is_url=True)
+            return StreamingResponse(
+                content=proc.stdout,
+                media_type="video/mp4",
+                headers={"X-Transcoded": "remux", "Cache-Control": "no-cache"},
+            )
+
+        # 默认：302重定向到视频URL
         try:
-            vid_url = info["url"]
-            # 直接302重定向到视频URL，让浏览器自己处理Range
-            # 比StreamingResponse更稳定，不会黑屏
-            from starlette.responses import RedirectResponse
             return RedirectResponse(url=vid_url, status_code=302)
         except Exception:
             return JSONResponse({"error": "remote video redirect failed"}, status_code=502)
@@ -163,9 +230,32 @@ async def api_play(token: str, request: Request):
     if not file_path or not os.path.isfile(file_path):
         return JSONResponse({"error": "invalid token"}, status_code=403)
 
+    # 本地文件：检测编码，非H.264自动转码
+    codec = await _probe_codec(file_path)
+    if codec and _needs_transcode(codec):
+        print(f"[btv] Transcoding {Path(file_path).name} ({codec} -> h264)")
+        proc = await _ffmpeg_transcode(file_path)
+        return StreamingResponse(
+            content=proc.stdout,
+            media_type="video/mp4",
+            headers={"X-Transcoded": codec},
+        )
+
     path = Path(file_path)
     mime = {".mp4": "video/mp4", ".avi": "video/x-msvideo", ".mkv": "video/x-matroska",
             ".mov": "video/quicktime", ".webm": "video/webm", ".flv": "video/x-flv"}.get(path.suffix.lower(), "video/mp4")
+
+    # 对于本地avi/mkv/mov/flv，即使ffprobe没检测到编码问题，也尝试转码
+    # 因为浏览器可能不支持容器格式
+    if path.suffix.lower() in (".avi", ".mkv", ".mov", ".flv") and os.path.isfile(FFMPEG_PATH):
+        print(f"[btv] Container format {path.suffix} -> transcoding {path.name}")
+        proc = await _ffmpeg_transcode(file_path)
+        return StreamingResponse(
+            content=proc.stdout,
+            media_type="video/mp4",
+            headers={"X-Transcoded": path.suffix.lstrip(".")},
+        )
+
     return FileResponse(file_path, media_type=mime)
 
 
