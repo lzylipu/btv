@@ -105,53 +105,75 @@ function hideControlsNow(){
 }
 
 /* 全屏管理 — 全屏wrap，换视频src时防退出 */
-var wantFS=!1,switchingSrc=!1,pendingNext=null;
+var wantFS=!1,switchingSrc=!1,pendingNext=null,fsActive=!1;
 
 document.addEventListener('fullscreenchange',onFSChange);
 document.addEventListener('webkitfullscreenchange',onFSChange);
 
 function onFSChange(){
-  console.log('[FS] fullscreenchange, isFS='+isFullscreen()+', wantFS='+wantFS+', switchingSrc='+switchingSrc);
+  console.log('[FS] fullscreenchange, isFS='+isFullscreen()+', wantFS='+wantFS+', fsActive='+fsActive);
   if(!isFullscreen()){
-    /* Firefox: 视频ended/paused自动退出全屏 → 在事件链内立即重入 */
+    fsActive=!1;
     if(wantFS){
-      /* 在fullscreenchange事件链内重入全屏，Firefox允许 */
-      var fn=W.requestFullscreen||W.webkitRequestFullscreen;
-      if(fn){
-        fn.call(W).then(function(){W.classList.add('fs')}).catch(function(){
-          /* 第一次失败，短暂延迟再试 */
-          setTimeout(function(){
-            var fn2=W.requestFullscreen||W.webkitRequestFullscreen;
-            if(fn2)fn2.call(W).then(function(){W.classList.add('fs')}).catch(function(){});
-          },50);
-        });
-      }
-      return;
+      /* Firefox Android可能退出全屏API但用户不想退出
+         → 用CSS fallback模拟全屏 + 保持横屏方向 */
+      W.classList.add('fs');
+      lockOrientation();
+      /* 延迟尝试重入Fullscreen API（可能因缺少user activation失败，没关系） */
+      setTimeout(function(){
+        if(wantFS&&!isFullscreen()){
+          var fn=W.requestFullscreen||W.webkitRequestFullscreen;
+          if(fn)fn.call(W).then(function(){fsActive=!0}).catch(function(){});
+        }
+      },100);
+    }else{
+      W.classList.remove('fs');
+      unlockOrientation();
     }
-    W.classList.remove('fs');
   }else{
+    fsActive=!0;
     W.classList.add('fs');
+    lockOrientation();
   }
 }
 
 function isFullscreen(){return !!(document.fullscreenElement||document.webkitFullscreenElement)}
 
+/* 屏幕方向锁定（Firefox Android全屏时保持横屏） */
+function lockOrientation(){
+  try{
+    var so=screen.orientation||screen.mozOrientation;
+    if(so&&so.lock)so.lock('landscape').catch(function(){});
+    else if(screen.lockOrientation)screen.lockOrientation('landscape');
+    else if(screen.mozLockOrientation)screen.mozLockOrientation('landscape');
+  }catch(e){}
+}
+function unlockOrientation(){
+  try{
+    var so=screen.orientation||screen.mozOrientation;
+    if(so&&so.unlock)so.unlock();
+    else if(screen.unlockOrientation)screen.unlockOrientation();
+    else if(screen.mozUnlockOrientation)screen.mozUnlockOrientation();
+  }catch(e){}
+}
+
 function requestFS(){
   wantFS=!0;
-  console.log('[FS] requestFS called, stack='+new Error().stack.split('\n').slice(1,3).map(function(s){return s.trim()}).join(' <- '));
+  console.log('[FS] requestFS called');
+  lockOrientation();
   var el=W;
   var fn=el.requestFullscreen||el.webkitRequestFullscreen;
-  if(fn)fn.call(el).then(function(){console.log('[FS] requestFS success')}).catch(function(e){console.log('[FS] requestFS FAILED: '+e)});
+  if(fn)fn.call(el).then(function(){fsActive=!0;console.log('[FS] requestFS success')}).catch(function(e){console.log('[FS] requestFS FAILED: '+e)});
 }
 
 function exitFS(){
-  console.log('[FS] exitFS called, stack='+new Error().stack.split('\n').slice(1,3).map(function(s){return s.trim()}).join(' <- '));
+  console.log('[FS] exitFS called');
   wantFS=!1;
   (document.exitFullscreen||document.webkitExitFullscreen||function(){}).call(document);
+  unlockOrientation();
 }
 
 function changeVideoSrc(newSrc){
-  console.log('[FS] changeVideoSrc, isFS='+isFullscreen()+', wantFS='+wantFS);
   switchingSrc=!0;
   V.src=newSrc;
   V.load();
@@ -326,9 +348,8 @@ async function playNext(){
   setTimeout(playNext,2e3);
 }
 
-/* 同步设src+play（防止Firefox检测到暂停退出全屏） */
+/* 同步设src+play */
 function setVideoAndPlay(src){
-  console.log('[FS] setVideoAndPlay, isFS='+isFullscreen()+', wantFS='+wantFS);
   V.src=src;
   V.muted=muted;V.volume=vol;
   V.setAttribute('playsinline','');
@@ -341,10 +362,9 @@ function setVideoAndPlay(src){
   },{once:!0});
 }
 
-/* 视频ended：如果有预取URL，同步切换（无async间隙） */
+/* 视频ended：如果有预取URL，同步切换 */
 V.addEventListener('ended',function(){
-  console.log('[FS] video ended, isFS='+isFullscreen());
-  wantFS=isFullscreen();/* 记住当前全屏状态 */
+  wantFS=isFullscreen();
   if(pendingNext){
     var d=pendingNext;
     pendingNext=null;
@@ -358,7 +378,7 @@ V.addEventListener('ended',function(){
     updateSourceName();
     L.classList.remove('show');
   }else{
-    /* 无预取URL，走async路径（Firefox可能退出全屏，onFSChange会重入） */
+    /* 无预取URL，走async路径 */
     switchingSrc=!0;
     playNext();
   }
