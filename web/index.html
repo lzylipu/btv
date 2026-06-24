@@ -105,19 +105,28 @@ function hideControlsNow(){
 }
 
 /* 全屏管理 — 全屏wrap，换视频src时防退出 */
-var wantFS=!1,switchingSrc=!1;
+var wantFS=!1,switchingSrc=!1,pendingNext=null;
 
 document.addEventListener('fullscreenchange',onFSChange);
 document.addEventListener('webkitfullscreenchange',onFSChange);
 
 function onFSChange(){
   if(!isFullscreen()){
-    /* 非预期退出（src切换导致）→ 立即重新进入 */
-    if(wantFS && switchingSrc){
-      reRequestFS();
+    /* Firefox: 视频ended/paused自动退出全屏 → 在事件链内立即重入 */
+    if(wantFS){
+      /* 在fullscreenchange事件链内重入全屏，Firefox允许 */
+      var fn=W.requestFullscreen||W.webkitRequestFullscreen;
+      if(fn){
+        fn.call(W).then(function(){W.classList.add('fs')}).catch(function(){
+          /* 第一次失败，短暂延迟再试 */
+          setTimeout(function(){
+            var fn2=W.requestFullscreen||W.webkitRequestFullscreen;
+            if(fn2)fn2.call(W).then(function(){W.classList.add('fs')}).catch(function(){});
+          },50);
+        });
+      }
       return;
     }
-    wantFS=!1;
     W.classList.remove('fs');
   }else{
     W.classList.add('fs');
@@ -138,25 +147,25 @@ function exitFS(){
   (document.exitFullscreen||document.webkitExitFullscreen||function(){}).call(document);
 }
 
-/* 重新请求全屏，带多次重试 */
-function reRequestFS(){
-  var tries=0;
-  function tryFS(){
-    if(isFullscreen()){W.classList.add('fs');return}
-    if(tries>=5)return;
-    tries++;
-    var fn=W.requestFullscreen||W.webkitRequestFullscreen;
-    if(fn)fn.call(W).then(function(){W.classList.add('fs')}).catch(function(){setTimeout(tryFS,300)});
-  }
-  setTimeout(tryFS,150);
-}
-
 function changeVideoSrc(newSrc){
   switchingSrc=!0;
   V.src=newSrc;
   V.load();
-  /* 安全网：2秒后无论结果都解除标记 */
-  setTimeout(function(){switchingSrc=!1},2e3);
+  setTimeout(function(){switchingSrc=!1},3e3);
+}
+
+/* 预取下一个视频URL（视频快结束时触发） */
+async function prefetchNext(){
+  try{
+    var s=Si===0?null:SL[Si-1],
+        u=s?'/api/random?source='+encodeURIComponent(s):'/api/random';
+    var r=await fetch(u);
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    var d=await r.json();
+    pendingNext=d;
+  }catch(e){
+    pendingNext=null;
+  }
 }
 
 function reloadCurrent(){
@@ -293,14 +302,7 @@ async function playNext(){
   for(var i=0;i<5;i++){
     try{
       var d=await fetchRandom();
-      changeVideoSrc('/api/play?token='+encodeURIComponent(d.token));
-      V.muted=muted;V.volume=vol;
-      V.setAttribute('playsinline','');
-      try{await V.play()}catch(e){V.muted=!0;try{await V.play()}catch(e2){}}
-      V.addEventListener('playing',function unmute(){
-        V.muted=muted;V.volume=vol;V.removeEventListener('playing',unmute);
-      },{once:!0});
-      /* switchingSrc由loadeddata/canplay事件清除 */
+      setVideoAndPlay('/api/play?token='+encodeURIComponent(d.token));
       L.classList.remove('show');
       if(Hi<H.length-1)H=H.slice(0,Hi+1);
       H.push({token:d.token,name:d.name||'未知'});
@@ -308,6 +310,7 @@ async function playNext(){
       Hi=H.length-1;
       VN.textContent=d.name||'未知';
       updateSourceName();
+      pendingNext=null;
       return;
     }catch(e){
       console.log('Retry '+(i+1)+'/5:',e.message);
@@ -319,10 +322,48 @@ async function playNext(){
   setTimeout(playNext,2e3);
 }
 
-function seekDelta(d){if(!V.duration)return;V.currentTime=Math.max(0,Math.min(V.duration,V.currentTime+d));toast((d>0?'+':'')+d+'s')}
-function playPrev(){if(Hi>0){Hi--;var a=H[Hi];changeVideoSrc('/api/play?token='+encodeURIComponent(a.token));V.play().catch(function(){});VN.textContent=a.name||'未知';updateSourceName()}}
+/* 同步设src+play（防止Firefox检测到暂停退出全屏） */
+function setVideoAndPlay(src){
+  V.src=src;
+  V.muted=muted;V.volume=vol;
+  V.setAttribute('playsinline','');
+  V.play().catch(function(){
+    V.muted=!0;
+    V.play().catch(function(){});
+  });
+  V.addEventListener('playing',function unmute(){
+    V.muted=muted;V.volume=vol;V.removeEventListener('playing',unmute);
+  },{once:!0});
+}
 
-V.addEventListener('ended',playNext);
+/* 视频ended：如果有预取URL，同步切换（无async间隙） */
+V.addEventListener('ended',function(){
+  wantFS=isFullscreen();/* 记住当前全屏状态 */
+  if(pendingNext){
+    var d=pendingNext;
+    pendingNext=null;
+    switchingSrc=!0;
+    setVideoAndPlay('/api/play?token='+encodeURIComponent(d.token));
+    if(Hi<H.length-1)H=H.slice(0,Hi+1);
+    H.push({token:d.token,name:d.name||'未知'});
+    if(H.length>50)H.shift();
+    Hi=H.length-1;
+    VN.textContent=d.name||'未知';
+    updateSourceName();
+    L.classList.remove('show');
+  }else{
+    /* 无预取URL，走async路径（Firefox可能退出全屏，onFSChange会重入） */
+    switchingSrc=!0;
+    playNext();
+  }
+});
+
+/* 预取：视频播放到90%时fetch下一个 */
+V.addEventListener('timeupdate',function(){
+  if(!V.duration||pendingNext)return;
+  if(V.currentTime>0&&!pendingNext&&V.currentTime>V.duration*0.9){
+    prefetchNext();
+  }
 
 /* 卡顿检测 */
 var stallTimer=null;
