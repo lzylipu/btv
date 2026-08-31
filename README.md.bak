@@ -1,10 +1,18 @@
+<div align="center">
+
 # 📺 BTV
 
 ### ✨ 仿B站风格 · 全屏随机视频播放器 ✨
 
 🚀 自托管 · 🐳 零配置部署 · 📱 移动端手势 · ⌨️ PC键盘操控 · 🔀 多源融合
 
+[![Docker Pulls](https://img.shields.io/docker/pulls/lzylipu/btv?style=flat-square&logo=docker&color=blue)](https://hub.docker.com/r/lzylipu/btv)
+[![License](https://img.shields.io/github/license/lzylipu/btv?style=flat-square&color=green)](./LICENSE)
+[![Platform](https://img.shields.io/badge/platform-amd64%20%7C%20arm64-informational?style=flat-square&logo=linux)](https://github.com/lzylipu/btv)
+
 **[English](./README_EN.md) | 中文**
+
+</div>
 
 ---
 
@@ -215,6 +223,7 @@ btv/
 ├── 📄 .gitignore                  # Git 忽略规则
 ├── 📄 LICENSE                     # MIT 许可证
 ├── 📄 README.md                   # 中文文档（本文件）
+└── 📄 README_EN.md                # English Documentation
 ```
 
 ### 🔑 核心模块说明
@@ -255,7 +264,10 @@ btv/
 
 ---
 
+<div align="center">
+
 **⭐ 如果 BTV 对你有帮助，给个 Star 吧！⭐**
 
 Made with ❤️ by [lzylipu](https://github.com/lzylipu)
 
+</div>

@@ -1,18 +1,10 @@
-<div align="center">
-
 # 📺 BTV
 
 ### ✨ Bilibili-Style · Fullscreen Random Video Player ✨
 
 🚀 Self-Hosted · 🐳 Zero-Config Deploy · 📱 Mobile Gestures · ⌨️ PC Keyboard Controls · 🔀 Multi-Source Fusion
 
-[![Docker Pulls](https://img.shields.io/docker/pulls/lzylipu/btv?style=flat-square&logo=docker&color=blue)](https://hub.docker.com/r/lzylipu/btv)
-[![License](https://img.shields.io/github/license/lzylipu/btv?style=flat-square&color=green)](./LICENSE)
-[![Platform](https://img.shields.io/badge/platform-amd64%20%7C%20arm64-informational?style=flat-square&logo=linux)](https://github.com/lzylipu/btv)
-
 **English | [中文](./README.md)**
-
-</div>
 
 ---
 
@@ -264,10 +256,7 @@ This project is licensed under the [MIT License](./LICENSE) — free to use, mod
 
 ---
 
-<div align="center">
-
 **⭐ If BTV helps you, give it a Star! ⭐**
 
 Made with ❤️ by [lzylipu](https://github.com/lzylipu)
 
-</div>
