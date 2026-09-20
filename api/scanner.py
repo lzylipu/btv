@@ -3,8 +3,8 @@ from pathlib import Path
 from .config import CFG
 from .auth import register_file
 
-_source_index = {}      # name -> [token, ...]
-_name_index = {}        # token -> display_name
+_source_index = {}      # name -> [file_path, ...]  本地按路径存,抽片时 register_file 换活牌
+_name_index = {}        # file_path -> display_name
 _remote_sources = {}    # name -> {"url": "..."}
 _local_sources = {}     # name -> path
 VIDEO_EXTENSIONS = {".mp4", ".avi", ".mkv", ".mov", ".webm", ".flv"}
@@ -41,14 +41,15 @@ def scan_all():
             print(f"[btv] WARNING: {path} not found ({name})")
             _source_index[name] = []
             continue
-        tokens = []
+        paths = []
         for f in p.rglob("*"):
             if f.is_file() and f.suffix.lower() in VIDEO_EXTENSIONS:
-                token = register_file(str(f))
-                tokens.append(token)
-                _name_index[token] = f.stem
-        _source_index[name] = tokens
-        print(f"[btv] LOCAL {name}: {len(tokens)} videos from {path}")
+                fp = str(f)
+                register_file(fp)
+                paths.append(fp)
+                _name_index[fp] = f.stem
+        _source_index[name] = paths
+        print(f"[btv] LOCAL {name}: {len(paths)} videos from {path}")
 
 
 def is_remote_source(name):
@@ -67,11 +68,18 @@ def get_source_list():
     return list(_source_index.keys())
 
 
+def _live_token(file_path):
+    """抽片时按路径换活牌:过期自动续,不用重启。"""
+    if not file_path:
+        return None
+    return register_file(file_path)
+
+
 def get_random(name):
     if is_remote_source(name):
         return None  # server层fetch
-    tokens = _source_index.get(name, [])
-    return random.choice(tokens) if tokens else None
+    paths = _source_index.get(name, [])
+    return _live_token(random.choice(paths)) if paths else None
 
 
 def get_random_any():
@@ -80,19 +88,24 @@ def get_random_any():
     if not all_sources:
         return None
 
-    # 有remote源时也标记为空列表，但只从local源取token
-    local_tokens = []
+    local_paths = []
     for name in all_sources:
         if not is_remote_source(name):
-            tokens = _source_index.get(name, [])
-            local_tokens.extend(tokens)
+            local_paths.extend(_source_index.get(name, []))
 
-    if local_tokens:
-        return random.choice(local_tokens)
+    if local_paths:
+        return _live_token(random.choice(local_paths))
     return None
 
 
 def get_name(token):
+    from .auth import resolve_token, is_remote_token, get_remote_info
+    if is_remote_token(token):
+        info = get_remote_info(token) or {}
+        return info.get("name") or "未知"
+    fp = resolve_token(token)
+    if fp:
+        return _name_index.get(fp, Path(fp).stem)
     return _name_index.get(token, "未知")
 
 
